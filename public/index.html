@@ -35,7 +35,7 @@ svg{display:block}
 }
 
 /* ============================================================
-   首屏启动层 / 锁屏（同一容器）
+   首屏启动层 / 锁屏
    ============================================================ */
 .boot{
   position:fixed;inset:0;z-index:200;
@@ -52,7 +52,6 @@ svg{display:block}
   transition:opacity .5s var(--ease),transform .62s var(--ease),visibility 0s linear .62s;
 }
 
-/* 舞台：整体上下移动的载体 */
 .boot-stage{
   position:relative;
   width:100%;max-width:340px;
@@ -63,7 +62,6 @@ svg{display:block}
   transform:translateY(-78px);
 }
 
-/* ---- 头部：logo + 名称 + 标语 + 加载点 ---- */
 .boot-head{
   display:flex;flex-direction:column;align-items:center;
   animation:bootIn .7s var(--ease-soft) both;
@@ -95,7 +93,6 @@ svg{display:block}
   text-align:center;
 }
 
-/* 加载点：绝对定位，不占布局高度，避免影响居中 */
 .boot-dots{
   position:absolute;
   left:0;right:0;bottom:-30px;
@@ -119,7 +116,6 @@ svg{display:block}
   35%{opacity:1;transform:scale(1)}
 }
 
-/* ---- 表单：绝对定位在头部下方，逐项淡入上滑 ---- */
 .boot-form{
   position:absolute;
   left:0;right:0;
@@ -231,8 +227,6 @@ svg{display:block}
 .card .ic svg{width:22px;height:22px}
 .card .t{font-size:18px;font-weight:600;letter-spacing:-.015em}
 .card .s{font-size:12.5px;color:var(--dim);margin-top:3px}
-.bottom{font-size:11px;color:var(--dim2);text-align:center;
-  max-width:560px;width:100%;margin:0 auto;}
 
 /* 面板 */
 .panel{position:fixed;inset:0;z-index:20;background:var(--bg);
@@ -272,6 +266,16 @@ svg{display:block}
 .ibtn:hover{background:rgba(255,255,255,.09);border-color:var(--line-hi)}
 .ibtn:active{transform:scale(.9)}
 .ibtn svg{width:18px;height:18px}
+
+/* 刷新按钮旋转动画 */
+@keyframes spinOnce{
+  from{transform:rotate(0deg)}
+  to{transform:rotate(360deg)}
+}
+.ibtn.rotating svg{
+  animation:spinOnce .6s cubic-bezier(.22,1,.36,1);
+}
+
 .panel .body{flex:1;min-height:0;overflow-y:auto;padding:16px;
   display:flex;flex-direction:column;-webkit-overflow-scrolling:touch;}
 
@@ -402,7 +406,6 @@ svg{display:block}
 .file:hover{background:rgba(255,255,255,.06);border-color:var(--line-hi)}
 @keyframes fileIn{from{opacity:0;transform:translateY(8px) scale(.98)}}
 
-/* ---- 上传进度：背景填充层 ---- */
 .file.uploading::before,
 .file.upload-ok::before,
 .file.upload-fail::before{
@@ -424,7 +427,6 @@ svg{display:block}
   background-color:rgba(248,113,113,.16);
 }
 
-/* 保证内容浮在填充层上方 */
 .file > .thumb,
 .file > .info,
 .file > .act{
@@ -445,7 +447,6 @@ svg{display:block}
   background:rgba(248,113,113,.08);
 }
 
-/* ---- 删除折叠动画 ---- */
 .file.collapsing{
   pointer-events:none;overflow:hidden;
   transition:
@@ -593,7 +594,6 @@ svg{display:block}
 <div class="boot" id="boot">
   <div class="boot-stage" id="bootStage">
 
-    <!-- 头部：logo + 名称 + 标语 + 加载点 -->
     <div class="boot-head">
       <div class="boot-logo">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="1em" height="1em"><path fill="currentColor" d="M26.07 3.996a3 3 0 0 0-.933.223h-.004c-.285.113-1.64.683-3.7 1.547l-7.382 3.109c-5.297 2.23-10.504 4.426-10.504 4.426l.062-.024s-.359.118-.734.375a2 2 0 0 0-.586.567c-.184.27-.332.683-.277 1.11c.09.722.558 1.155.894 1.394c.34.242.664.355.664.355h.008l4.883 1.645c.219.703 1.488 4.875 1.793 5.836c.18.574.355.933.574 1.207q.157.21.379.351a1 1 0 0 0 .246.106l-.05-.012c.015.004.027.016.038.02c.04.011.067.015.118.023c.773.234 1.394-.246 1.394-.246l.035-.028l2.883-2.625l4.832 3.707l.11.047c1.007.442 2.027.196 2.566-.238c.543-.437.754-.996.754-.996l.035-.09l3.734-19.129c.106-.472.133-.914.016-1.343a1.8 1.8 0 0 0-.781-1.047a1.87 1.87 0 0 0-1.067-.27m-.101 2.05c-.004.063.008.056-.02.177v.011l-3.699 18.93c-.016.027-.043.086-.117.145c-.078.062-.14.101-.465-.028l-5.91-4.531l-3.57 3.254l.75-4.79l9.656-9c.398-.37.265-.448.265-.448c.028-.454-.601-.133-.601-.133l-12.176 7.543l-.004-.02l-5.836-1.965v-.004l-.015-.003l.03-.012l.032-.016l.031-.011s5.211-2.196 10.508-4.426c2.652-1.117 5.324-2.242 7.379-3.11a807 807 0 0 1 3.66-1.53c.082-.032.043-.032.102-.032z"/></svg>
@@ -604,7 +604,6 @@ svg{display:block}
       <div class="boot-dots"><i></i><i></i><i></i></div>
     </div>
 
-    <!-- 表单：淡入 + 上滑 -->
     <div class="boot-form" id="bootForm">
       <div class="boot-field">
         <input id="pw" type="password" placeholder="访问密码" autocomplete="current-password">
@@ -639,7 +638,6 @@ svg{display:block}
       <div class="s">上传与下载</div>
     </button>
   </div>
-  <div class="bottom">文本加密 · 文件直传 · Cookie 认证</div>
 </div>
 
 <!-- 文字面板 -->
@@ -677,8 +675,11 @@ svg{display:block}
     <header>
       <button class="ibtn" data-close><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
       <h2>文件</h2>
-      <button class="ibtn" id="pickFile" title="选择文件">
-        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      <button class="ibtn" id="refreshFiles" title="刷新列表">
+        <svg viewBox="0 0 24 24">
+          <path d="M23 4v6h-6"/>
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+        </svg>
       </button>
       <input type="file" id="fileInput" multiple hidden>
     </header>
@@ -701,7 +702,7 @@ svg{display:block}
       </div>
       <div class="dropzone" id="dropzone">
         <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L8 8m4-4l4 4M4 20h16"/></svg>
-        <span>拖拽文件到此处，或点击右上角 +</span>
+        <span>拖拽文件到此处，或点击选择文件</span>
       </div>
       <ul class="filelist" id="filelist"></ul>
     </div>
@@ -847,7 +848,6 @@ const historySheet = $('#historySheet');
 function showApp(){ appEl.classList.remove('gone'); }
 function hideBoot(){ bootEl.classList.add('gone'); }
 
-/** 进入登录态：头部上移，表单淡入上滑 */
 function showBootLogin(msg){
   bootEl.classList.remove('gone');
   bootEl.classList.add('login');
@@ -855,10 +855,9 @@ function showBootLogin(msg){
   pwInput.value = '';
 }
 
-/** 会话失效 / 主动登出：回到锁屏 */
 function lockScreen(msg = ''){
   cryptoKey = null;
-  try { sessionStorage.removeItem('clip.pw'); } catch {}
+  try { localStorage.removeItem('clip.pw'); } catch {}
 
   stopPolling();
   document.querySelectorAll('.panel.on').forEach(p => p.classList.remove('on'));
@@ -895,7 +894,7 @@ async function unlock() {
     if (!res.ok) throw new Error('bad');
 
     cryptoKey = await deriveKey(pw);
-    try { sessionStorage.setItem('clip.pw', pw); } catch {}
+    try { localStorage.setItem('clip.pw', pw); } catch {}
     pwInput.value = '';
 
     showApp();
@@ -1400,6 +1399,7 @@ const fileInput = $('#fileInput');
 const dropzone = $('#dropzone');
 const filelist = $('#filelist');
 const expiryDD = $('#expiryDD');
+const refreshBtn = $('#refreshFiles');
 
 function fmtSize(n) {
   if (n < 1024) return n + ' B';
@@ -1455,6 +1455,15 @@ async function loadFiles() {
     filelist.innerHTML = '<li class="empty" style="color:#f87171">加载失败</li>';
   }
 }
+
+/* ---- 刷新按钮：点击旋转并刷新 ---- */
+refreshBtn.onclick = async () => {
+  if (refreshBtn.classList.contains('rotating')) return;
+  refreshBtn.classList.add('rotating');
+  try { await loadFiles(); } finally {
+    setTimeout(() => refreshBtn.classList.remove('rotating'), 620);
+  }
+};
 
 function renderFile(f) {
   const li = document.createElement('li');
@@ -1708,9 +1717,7 @@ async function uploadMany(fileList) {
   }, 350);
 }
 
-/* ---- 事件 ---- */
-$('#pickFile').onclick = () => fileInput.click();
-
+/* ---- 上传事件 ---- */
 fileInput.addEventListener('change', async () => {
   const files = Array.from(fileInput.files);
   fileInput.value = '';
@@ -1741,12 +1748,11 @@ window.addEventListener('drop', e => e.preventDefault());
 /* ============================================================
  * 启动
  * ============================================================ */
-const MIN_BOOT = 720;   // 启动页最短展示时长，避免一闪而过
+const MIN_BOOT = 720;
 
 async function init() {
   const started = Date.now();
 
-  // 收尾：保证启动页至少停留 MIN_BOOT 后再执行切换
   async function settle(fn) {
     const rest = MIN_BOOT - (Date.now() - started);
     if (rest > 0) await new Promise(r => setTimeout(r, rest));
@@ -1754,7 +1760,7 @@ async function init() {
   }
 
   let pw = null;
-  try { pw = sessionStorage.getItem('clip.pw'); } catch {}
+  try { pw = localStorage.getItem('clip.pw'); } catch {}
 
   if (pw) {
     try {
@@ -1774,9 +1780,9 @@ async function init() {
         cryptoKey = await deriveKey(pw);
         return settle(() => { showApp(); hideBoot(); });
       }
-      try { sessionStorage.removeItem('clip.pw'); } catch {}
+      try { localStorage.removeItem('clip.pw'); } catch {}
     } catch {
-      try { sessionStorage.removeItem('clip.pw'); } catch {}
+      try { localStorage.removeItem('clip.pw'); } catch {}
     }
   }
   await settle(() => showBootLogin());
