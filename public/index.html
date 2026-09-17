@@ -260,13 +260,66 @@ svg{display:block}
 .dropzone.over{border-color:rgba(99,102,241,.65);background:rgba(99,102,241,.07);
   color:var(--fg);transform:scale(1.012);}
 .filelist{list-style:none;margin-top:14px;display:flex;flex-direction:column;gap:8px}
-.file{display:flex;align-items:center;gap:12px;padding:11px 12px;
-  border-radius:15px;background:rgba(255,255,255,.035);border:1px solid var(--line);
+
+/* ============ 文件卡片 ============ */
+.file{
+  position:relative;
+  overflow:hidden;
+  display:flex;align-items:center;gap:12px;
+  padding:11px 12px;
+  border-radius:15px;
+  background:rgba(255,255,255,.035);
+  border:1px solid var(--line);
   animation:fileIn .4s var(--ease) both;
-  transition:background .2s,border-color .2s;}
+  transition:background .2s,border-color .2s;
+}
 .file:hover{background:rgba(255,255,255,.06);border-color:var(--line-hi)}
 @keyframes fileIn{from{opacity:0;transform:translateY(8px) scale(.98)}}
 
+/* ---- 上传进度：背景填充层 ---- */
+.file.uploading::before,
+.file.upload-ok::before,
+.file.upload-fail::before{
+  content:'';
+  position:absolute;
+  top:0;left:0;bottom:0;
+  width:var(--progress, 0%);
+  background-color:rgba(99,102,241,.20);
+  transition:
+    width .3s cubic-bezier(.22,1,.36,1),
+    background-color .35s ease;
+  pointer-events:none;
+  z-index:0;
+}
+.file.upload-ok::before{
+  background-color:rgba(52,211,153,.16);
+}
+.file.upload-fail::before{
+  background-color:rgba(248,113,113,.16);
+}
+
+/* 保证内容浮在填充层上方 */
+.file > .thumb,
+.file > .info,
+.file > .act{
+  position:relative;
+  z-index:1;
+}
+
+.file.upload-ok .meta{color:var(--ok)}
+.file.upload-ok .thumb{
+  color:var(--ok);
+  border-color:rgba(52,211,153,.3);
+  background:rgba(52,211,153,.08);
+}
+.file.upload-fail .meta{color:var(--danger)}
+.file.upload-fail .thumb{
+  color:var(--danger);
+  border-color:rgba(248,113,113,.3);
+  background:rgba(248,113,113,.08);
+}
+
+/* ---- 删除折叠动画 ---- */
 .file.collapsing{
   pointer-events:none;overflow:hidden;
   transition:
@@ -288,67 +341,14 @@ svg{display:block}
   display:grid;place-items:center;overflow:hidden;
   background:rgba(255,255,255,.06);
   border:1px solid var(--line);
-  color:rgba(255,255,255,.82);}
+  color:rgba(255,255,255,.82);
+  transition:color .25s,background .25s,border-color .25s;}
 .thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .thumb svg{width:18px;height:18px}
 .file .info{flex:1;min-width:0}
 .file .name{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.file .meta{font-size:11.5px;color:var(--dim2);margin-top:2px}
-
-/* ============ 上传进度条 ============ */
-.file .bar{
-  height:3px;
-  margin-top:8px;
-  background:rgba(255,255,255,.06);
-  border-radius:3px;
-  overflow:hidden;
-  position:relative;
-  display:none;
-}
-.file.uploading .bar,
-.file.upload-ok .bar,
-.file.upload-fail .bar{display:block}
-
-.file .bar-fill{
-  height:100%;
-  width:0%;
-  background:linear-gradient(90deg,#6366f1,#a5b4fc);
-  border-radius:3px;
-  transition:width .18s linear,background .3s;
-  position:relative;
-  box-shadow:0 0 10px rgba(99,102,241,.55);
-}
-.file.uploading .bar-fill::after{
-  content:'';
-  position:absolute;
-  inset:0;
-  background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);
-  animation:shimmer 1.4s infinite;
-}
-@keyframes shimmer{
-  0%{transform:translateX(-100%)}
-  100%{transform:translateX(100%)}
-}
-.file.upload-ok .meta{color:var(--ok)}
-.file.upload-ok .bar-fill{
-  background:var(--ok);
-  box-shadow:0 0 10px rgba(52,211,153,.5);
-}
-.file.upload-ok .thumb{
-  color:var(--ok);
-  border-color:rgba(52,211,153,.3);
-  background:rgba(52,211,153,.08);
-}
-.file.upload-fail .meta{color:var(--danger)}
-.file.upload-fail .bar-fill{
-  background:var(--danger);
-  box-shadow:0 0 10px rgba(248,113,113,.5);
-}
-.file.upload-fail .thumb{
-  color:var(--danger);
-  border-color:rgba(248,113,113,.3);
-  background:rgba(248,113,113,.08);
-}
+.file .meta{font-size:11.5px;color:var(--dim2);margin-top:2px;
+  transition:color .25s}
 
 .rename-input{width:100%;background:rgba(255,255,255,.06);
   border:1px solid rgba(99,102,241,.5);border-radius:8px;padding:4px 8px;
@@ -1418,19 +1418,19 @@ async function startRename(li, f) {
 }
 
 /* ============================================================
- * 上传队列：最多 3 并发 + 进度条
+ * 上传队列：3 并发 + 背景填充式进度
  * ============================================================ */
 const UPLOAD_CONCURRENCY = 3;
 
 function createUploadPlaceholder(file) {
   const li = document.createElement('li');
   li.className = 'file uploading';
+  li.style.setProperty('--progress', '0%');
   li.innerHTML = `
     <div class="thumb"><div class="spin"></div></div>
     <div class="info">
       <div class="name"></div>
       <div class="meta">准备中…</div>
-      <div class="bar"><div class="bar-fill" style="width:0%"></div></div>
     </div>`;
   li.querySelector('.name').textContent = file.name;
   return li;
@@ -1438,19 +1438,17 @@ function createUploadPlaceholder(file) {
 
 function setUploadProgress(li, ratio) {
   const pct = Math.max(0, Math.min(1, ratio));
-  const fill = li.querySelector('.bar-fill');
+  li.style.setProperty('--progress', (pct * 100).toFixed(1) + '%');
   const meta = li.querySelector('.meta');
-  if (fill) fill.style.width = (pct * 100).toFixed(1) + '%';
   if (meta) meta.textContent = '上传中 ' + Math.round(pct * 100) + '%';
 }
 
 function setUploadComplete(li) {
   li.classList.remove('uploading');
   li.classList.add('upload-ok');
-  const fill = li.querySelector('.bar-fill');
+  li.style.setProperty('--progress', '100%');
   const meta = li.querySelector('.meta');
   const thumb = li.querySelector('.thumb');
-  if (fill) fill.style.width = '100%';
   if (meta) meta.textContent = '完成';
   if (thumb) {
     thumb.innerHTML =
@@ -1461,10 +1459,9 @@ function setUploadComplete(li) {
 function setUploadFailed(li, msg) {
   li.classList.remove('uploading');
   li.classList.add('upload-fail');
-  const fill = li.querySelector('.bar-fill');
+  li.style.setProperty('--progress', '100%');
   const meta = li.querySelector('.meta');
   const thumb = li.querySelector('.thumb');
-  if (fill) fill.style.width = '100%';
   if (meta) {
     meta.textContent = msg || '上传失败';
     meta.style.color = 'var(--danger)';
