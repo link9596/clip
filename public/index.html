@@ -17,6 +17,7 @@
   --danger:#f87171;--ok:#34d399;
   --ease:cubic-bezier(.22,1,.36,1);
   --ease-out:cubic-bezier(.16,1,.3,1);
+  --ease-soft:cubic-bezier(.16,1,.3,1);
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
@@ -34,20 +35,43 @@ svg{display:block}
 }
 
 /* ============================================================
-   首屏启动过渡（FlyPaste）
+   首屏启动层 / 锁屏（同一容器）
    ============================================================ */
 .boot{
   position:fixed;inset:0;z-index:200;
   display:flex;align-items:center;justify-content:center;
+  padding:0 24px;
   background:var(--bg);
-  transition:opacity .45s var(--ease),transform .55s var(--ease);
+  overflow:hidden;
+  opacity:1;visibility:visible;
+  transition:opacity .5s var(--ease),transform .62s var(--ease),visibility 0s;
 }
-.boot.gone{opacity:0;transform:scale(1.045);pointer-events:none}
-.boot-inner{
-  display:flex;flex-direction:column;align-items:center;gap:16px;
-  animation:bootIn .65s var(--ease-out) both;
+.boot.gone{
+  opacity:0;transform:scale(1.045);
+  pointer-events:none;visibility:hidden;
+  transition:opacity .5s var(--ease),transform .62s var(--ease),visibility 0s linear .62s;
 }
-@keyframes bootIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+/* 舞台：整体上下移动的载体 */
+.boot-stage{
+  position:relative;
+  width:100%;max-width:340px;
+  will-change:transform;
+  transition:transform .88s var(--ease-soft);
+}
+.boot.login .boot-stage{
+  transform:translateY(-78px);
+}
+
+/* ---- 头部：logo + 名称 + 标语 + 加载点 ---- */
+.boot-head{
+  display:flex;flex-direction:column;align-items:center;
+  animation:bootIn .7s var(--ease-soft) both;
+}
+@keyframes bootIn{
+  from{opacity:0;transform:translateY(14px) scale(.98)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
 
 .boot-logo{
   width:66px;height:66px;border-radius:21px;
@@ -55,22 +79,38 @@ svg{display:block}
   background:linear-gradient(140deg,rgba(99,102,241,.24),rgba(99,102,241,.05));
   border:1px solid rgba(99,102,241,.28);
   color:var(--accent-hi);
-  box-shadow:0 14px 44px rgba(99,102,241,.20);
-  animation:float 3.4s ease-in-out infinite;
+  box-shadow:0 14px 44px rgba(99,102,241,.18);
+  animation:float 3.6s ease-in-out infinite;
+  margin-bottom:20px;
 }
 .boot-logo svg{width:30px;height:30px}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
 
 .boot-name{
-  font-size:19px;font-weight:600;letter-spacing:-.01em;color:var(--fg);
+  font-size:21px;font-weight:600;letter-spacing:-.02em;
+  color:var(--fg);margin-bottom:7px;
 }
 .boot-sub{
-  font-size:10.5px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;
-  color:var(--dim2);margin-top:-8px;
+  font-size:12.5px;color:var(--dim);line-height:1.5;
+  text-align:center;
 }
-.boot-dots{display:flex;gap:6px;margin-top:6px}
+
+/* 加载点：绝对定位，不占布局高度，避免影响居中 */
+.boot-dots{
+  position:absolute;
+  left:0;right:0;bottom:-30px;
+  display:flex;gap:6px;justify-content:center;
+  height:6px;
+  opacity:1;
+  transition:opacity .32s var(--ease),transform .45s var(--ease-soft);
+}
+.boot.login .boot-dots{
+  opacity:0;transform:translateY(-8px) scale(.85);
+  pointer-events:none;
+}
 .boot-dots i{
   width:6px;height:6px;border-radius:50%;background:var(--accent);
-  animation:dotPulse 1.25s var(--ease) infinite;
+  animation:dotPulse 1.25s var(--ease) infinite;flex-shrink:0;
 }
 .boot-dots i:nth-child(2){animation-delay:.16s}
 .boot-dots i:nth-child(3){animation-delay:.32s}
@@ -78,37 +118,77 @@ svg{display:block}
   0%,70%,100%{opacity:.22;transform:scale(.68)}
   35%{opacity:1;transform:scale(1)}
 }
-@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
 
-/* 锁屏 */
-.lock{position:fixed;inset:0;z-index:100;display:flex;align-items:center;
-  justify-content:center;padding:24px;background:var(--bg);
-  transition:opacity .45s var(--ease),transform .55s var(--ease);}
-.lock.gone{opacity:0;transform:scale(1.05);pointer-events:none}
-.lock-inner{width:100%;max-width:330px;text-align:center}
-.lock-badge{width:56px;height:56px;border-radius:18px;margin:0 auto 22px;
-  display:grid;place-items:center;
-  background:linear-gradient(140deg,rgba(99,102,241,.22),rgba(99,102,241,.06));
-  border:1px solid rgba(99,102,241,.28);color:var(--accent-hi);
-  animation:float 3.4s ease-in-out infinite;}
-.lock-badge svg{width:26px;height:26px}
-.lock-inner h1{font-size:23px;font-weight:600;letter-spacing:-.02em;margin-bottom:7px}
-.lock-inner p{font-size:13px;color:var(--dim);margin-bottom:30px}
-.field input{width:100%;padding:15px 17px;border-radius:15px;
+/* ---- 表单：绝对定位在头部下方，逐项淡入上滑 ---- */
+.boot-form{
+  position:absolute;
+  left:0;right:0;
+  top:calc(100% + 8px);
+  display:flex;flex-direction:column;
+}
+
+.boot-field,
+.boot-btn{
+  opacity:0;
+  transform:translateY(22px);
+  pointer-events:none;
+  will-change:transform,opacity;
+}
+.boot-field{
+  transition:
+    opacity .5s var(--ease),
+    transform .72s var(--ease-soft);
+}
+.boot-btn{
+  margin-top:16px;
+  transition:
+    opacity .5s var(--ease),
+    transform .72s var(--ease-soft);
+}
+.boot.login .boot-field{
+  opacity:1;transform:translateY(0);
+  pointer-events:auto;
+  transition-delay:.10s;
+}
+.boot.login .boot-btn{
+  opacity:1;transform:translateY(0);
+  pointer-events:auto;
+  transition-delay:.21s;
+}
+
+.boot-field input{
+  width:100%;padding:15px 17px;border-radius:15px;
   background:rgba(255,255,255,.045);border:1px solid var(--line);
   color:var(--fg);font-size:16px;outline:none;
-  transition:border-color .25s,box-shadow .25s,background .25s;}
-.field input::placeholder{color:var(--dim2)}
-.field input:focus{border-color:rgba(99,102,241,.55);
-  background:rgba(255,255,255,.06);box-shadow:0 0 0 4px rgba(99,102,241,.1);}
-.primary{width:100%;padding:15px;border-radius:15px;background:var(--accent);
+  transition:border-color .25s,box-shadow .25s,background .25s;
+}
+.boot-field input::placeholder{color:var(--dim2)}
+.boot-field input:focus{
+  border-color:rgba(99,102,241,.55);
+  background:rgba(255,255,255,.06);
+  box-shadow:0 0 0 4px rgba(99,102,241,.1);
+}
+
+.primary{
+  width:100%;padding:15px;border-radius:15px;background:var(--accent);
   color:#fff;font-weight:600;font-size:15px;
-  transition:transform .16s var(--ease),filter .2s,opacity .2s;}
+  transition:transform .16s var(--ease),filter .2s,opacity .2s;
+}
 .primary:hover{filter:brightness(1.08)}
 .primary:active{transform:scale(.975)}
 .primary:disabled{opacity:.5;cursor:default}
-.err{font-size:12.5px;color:var(--danger);margin-top:14px;min-height:16px}
-.hint{font-size:11.5px;color:var(--dim2);margin-top:16px}
+
+.err{
+  font-size:12.5px;color:var(--danger);
+  margin-top:12px;min-height:16px;
+  opacity:0;transform:translateY(6px);
+  transition:opacity .3s var(--ease),transform .4s var(--ease-soft);
+}
+.boot.login .err{
+  opacity:1;transform:none;
+  transition-delay:.28s;
+}
+.err:empty{opacity:0}
 
 /* 主页 */
 .app{position:fixed;inset:0;display:flex;flex-direction:column;
@@ -507,32 +587,32 @@ svg{display:block}
 </head>
 <body>
 
-<!-- 首屏启动过渡 -->
+<!-- ============================================================
+     首屏启动层 / 锁屏
+     ============================================================ -->
 <div class="boot" id="boot">
-  <div class="boot-inner">
-    <div class="boot-logo">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="1em" height="1em"><path fill="currentColor" d="M26.07 3.996a3 3 0 0 0-.933.223h-.004c-.285.113-1.64.683-3.7 1.547l-7.382 3.109c-5.297 2.23-10.504 4.426-10.504 4.426l.062-.024s-.359.118-.734.375a2 2 0 0 0-.586.567c-.184.27-.332.683-.277 1.11c.09.722.558 1.155.894 1.394c.34.242.664.355.664.355h.008l4.883 1.645c.219.703 1.488 4.875 1.793 5.836c.18.574.355.933.574 1.207q.157.21.379.351a1 1 0 0 0 .246.106l-.05-.012c.015.004.027.016.038.02c.04.011.067.015.118.023c.773.234 1.394-.246 1.394-.246l.035-.028l2.883-2.625l4.832 3.707l.11.047c1.007.442 2.027.196 2.566-.238c.543-.437.754-.996.754-.996l.035-.09l3.734-19.129c.106-.472.133-.914.016-1.343a1.8 1.8 0 0 0-.781-1.047a1.87 1.87 0 0 0-1.067-.27m-.101 2.05c-.004.063.008.056-.02.177v.011l-3.699 18.93c-.016.027-.043.086-.117.145c-.078.062-.14.101-.465-.028l-5.91-4.531l-3.57 3.254l.75-4.79l9.656-9c.398-.37.265-.448.265-.448c.028-.454-.601-.133-.601-.133l-12.176 7.543l-.004-.02l-5.836-1.965v-.004l-.015-.003l.03-.012l.032-.016l.031-.011s5.211-2.196 10.508-4.426c2.652-1.117 5.324-2.242 7.379-3.11a807 807 0 0 1 3.66-1.53c.082-.032.043-.032.102-.032z"/></svg>
-    </div>
-    <div class="boot-name">FlyPaste</div>
-    <div class="boot-sub">Encrypted Clipboard</div>
-    <div class="boot-dots"><i></i><i></i><i></i></div>
-  </div>
-</div>
+  <div class="boot-stage" id="bootStage">
 
-<!-- 锁屏 -->
-<div class="lock" id="lock">
-  <div class="lock-inner">
-    <div class="lock-badge">
-      <svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+    <!-- 头部：logo + 名称 + 标语 + 加载点 -->
+    <div class="boot-head">
+      <div class="boot-logo">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="1em" height="1em"><path fill="currentColor" d="M26.07 3.996a3 3 0 0 0-.933.223h-.004c-.285.113-1.64.683-3.7 1.547l-7.382 3.109c-5.297 2.23-10.504 4.426-10.504 4.426l.062-.024s-.359.118-.734.375a2 2 0 0 0-.586.567c-.184.27-.332.683-.277 1.11c.09.722.558 1.155.894 1.394c.34.242.664.355.664.355h.008l4.883 1.645c.219.703 1.488 4.875 1.793 5.836c.18.574.355.933.574 1.207q.157.21.379.351a1 1 0 0 0 .246.106l-.05-.012c.015.004.027.016.038.02c.04.011.067.015.118.023c.773.234 1.394-.246 1.394-.246l.035-.028l2.883-2.625l4.832 3.707l.11.047c1.007.442 2.027.196 2.566-.238c.543-.437.754-.996.754-.996l.035-.09l3.734-19.129c.106-.472.133-.914.016-1.343a1.8 1.8 0 0 0-.781-1.047a1.87 1.87 0 0 0-1.067-.27m-.101 2.05c-.004.063.008.056-.02.177v.011l-3.699 18.93c-.016.027-.043.086-.117.145c-.078.062-.14.101-.465-.028l-5.91-4.531l-3.57 3.254l.75-4.79l9.656-9c.398-.37.265-.448.265-.448c.028-.454-.601-.133-.601-.133l-12.176 7.543l-.004-.02l-5.836-1.965v-.004l-.015-.003l.03-.012l.032-.016l.031-.011s5.211-2.196 10.508-4.426c2.652-1.117 5.324-2.242 7.379-3.11a807 807 0 0 1 3.66-1.53c.082-.032.043-.032.102-.032z"/></svg>
+      </div>
+      <div class="boot-name">FlyPaste</div>
+      <div class="boot-sub">跨设备同步剪切板和共享文件</div>
+
+      <div class="boot-dots"><i></i><i></i><i></i></div>
     </div>
-    <h1>FlyPaste</h1>
-    <p>跨设备同步 · 文本端到端加密</p>
-    <div class="field">
-      <input id="pw" type="password" placeholder="访问密码" autocomplete="current-password">
+
+    <!-- 表单：淡入 + 上滑 -->
+    <div class="boot-form" id="bootForm">
+      <div class="boot-field">
+        <input id="pw" type="password" placeholder="访问密码" autocomplete="current-password">
+      </div>
+      <button class="primary boot-btn" id="unlockBtn">解锁</button>
+      <div class="err" id="lockErr"></div>
     </div>
-    <button class="primary" id="unlockBtn">解锁</button>
-    <div class="err" id="lockErr"></div>
-    <div class="hint">密码同时用于认证和加密文本</div>
+
   </div>
 </div>
 
@@ -755,38 +835,39 @@ async function api(method, path, opts = {}) {
 }
 
 /* ============================================================
- * 锁屏 / 首屏启动层
+ * 首屏启动层 / 锁屏
  * ============================================================ */
-const lockEl = $('#lock');
-const appEl = $('#app');
-const bootEl = $('#boot');
-const pwInput = $('#pw');
+const bootEl    = $('#boot');
+const appEl     = $('#app');
+const pwInput   = $('#pw');
 const unlockBtn = $('#unlockBtn');
-const lockErr = $('#lockErr');
+const lockErr   = $('#lockErr');
 const historySheet = $('#historySheet');
 
-function hideBoot() {
-  if (!bootEl) return;
-  bootEl.classList.add('gone');
-  setTimeout(() => { bootEl.style.display = 'none'; }, 560);
+function showApp(){ appEl.classList.remove('gone'); }
+function hideBoot(){ bootEl.classList.add('gone'); }
+
+/** 进入登录态：头部上移，表单淡入上滑 */
+function showBootLogin(msg){
+  bootEl.classList.remove('gone');
+  bootEl.classList.add('login');
+  lockErr.textContent = msg || '';
+  pwInput.value = '';
 }
 
-function showLock() {
-  lockEl.classList.remove('gone');
-  appEl.classList.add('gone');
-}
-function showApp() {
-  lockEl.classList.add('gone');
-  setTimeout(() => appEl.classList.remove('gone'), 60);
-}
-function lockScreen(msg = '') {
+/** 会话失效 / 主动登出：回到锁屏 */
+function lockScreen(msg = ''){
   cryptoKey = null;
-  sessionStorage.removeItem('clip.pw');
+  try { sessionStorage.removeItem('clip.pw'); } catch {}
+
   stopPolling();
   document.querySelectorAll('.panel.on').forEach(p => p.classList.remove('on'));
   historySheet.classList.remove('on');
-  lockErr.textContent = msg;
-  showLock();
+  const pm = document.getElementById('previewModal');
+  if (pm) pm.classList.remove('on');
+
+  appEl.classList.add('gone');
+  showBootLogin(msg);
 }
 
 async function unlock() {
@@ -814,9 +895,11 @@ async function unlock() {
     if (!res.ok) throw new Error('bad');
 
     cryptoKey = await deriveKey(pw);
-    sessionStorage.setItem('clip.pw', pw);
-    showApp();
+    try { sessionStorage.setItem('clip.pw', pw); } catch {}
     pwInput.value = '';
+
+    showApp();
+    hideBoot();
   } catch {
     lockErr.textContent = '密码错误';
     cryptoKey = null;
@@ -1658,17 +1741,16 @@ window.addEventListener('drop', e => e.preventDefault());
 /* ============================================================
  * 启动
  * ============================================================ */
-const MIN_BOOT = 700;   // 启动页最短展示时长，避免一闪而过
+const MIN_BOOT = 720;   // 启动页最短展示时长，避免一闪而过
 
 async function init() {
   const started = Date.now();
 
-  // 统一的「收尾」：保证启动页至少停留 MIN_BOOT，再淡出并进入目标界面
-  async function settle(show) {
+  // 收尾：保证启动页至少停留 MIN_BOOT 后再执行切换
+  async function settle(fn) {
     const rest = MIN_BOOT - (Date.now() - started);
     if (rest > 0) await new Promise(r => setTimeout(r, rest));
-    hideBoot();
-    show();
+    fn();
   }
 
   let pw = null;
@@ -1680,7 +1762,7 @@ async function init() {
       const data = await r.json();
       if (data.ok) {
         cryptoKey = await deriveKey(pw);
-        return settle(showApp);
+        return settle(() => { showApp(); hideBoot(); });
       }
       const lr = await fetch('/api/login', {
         method: 'POST',
@@ -1690,18 +1772,14 @@ async function init() {
       });
       if (lr.ok) {
         cryptoKey = await deriveKey(pw);
-        return settle(showApp);
+        return settle(() => { showApp(); hideBoot(); });
       }
       try { sessionStorage.removeItem('clip.pw'); } catch {}
     } catch {
       try { sessionStorage.removeItem('clip.pw'); } catch {}
     }
   }
-
-  await settle(() => {
-    showLock();
-    pwInput.focus();
-  });
+  await settle(() => showBootLogin());
 }
 
 init();
