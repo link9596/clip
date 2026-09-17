@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0a0a0c">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>剪贴板</title>
+<title>FlyPaste</title>
 <link rel="manifest" href="/manifest.json">
 <style>
 :root{
@@ -33,6 +33,53 @@ svg{display:block}
   stroke-linecap:round;stroke-linejoin:round;
 }
 
+/* ============================================================
+   首屏启动过渡（FlyPaste）
+   ============================================================ */
+.boot{
+  position:fixed;inset:0;z-index:200;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--bg);
+  transition:opacity .45s var(--ease),transform .55s var(--ease);
+}
+.boot.gone{opacity:0;transform:scale(1.045);pointer-events:none}
+.boot-inner{
+  display:flex;flex-direction:column;align-items:center;gap:16px;
+  animation:bootIn .65s var(--ease-out) both;
+}
+@keyframes bootIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+.boot-logo{
+  width:66px;height:66px;border-radius:21px;
+  display:grid;place-items:center;
+  background:linear-gradient(140deg,rgba(99,102,241,.24),rgba(99,102,241,.05));
+  border:1px solid rgba(99,102,241,.28);
+  color:var(--accent-hi);
+  box-shadow:0 14px 44px rgba(99,102,241,.20);
+  animation:float 3.4s ease-in-out infinite;
+}
+.boot-logo svg{width:30px;height:30px}
+
+.boot-name{
+  font-size:19px;font-weight:600;letter-spacing:-.01em;color:var(--fg);
+}
+.boot-sub{
+  font-size:10.5px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--dim2);margin-top:-8px;
+}
+.boot-dots{display:flex;gap:6px;margin-top:6px}
+.boot-dots i{
+  width:6px;height:6px;border-radius:50%;background:var(--accent);
+  animation:dotPulse 1.25s var(--ease) infinite;
+}
+.boot-dots i:nth-child(2){animation-delay:.16s}
+.boot-dots i:nth-child(3){animation-delay:.32s}
+@keyframes dotPulse{
+  0%,70%,100%{opacity:.22;transform:scale(.68)}
+  35%{opacity:1;transform:scale(1)}
+}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+
 /* 锁屏 */
 .lock{position:fixed;inset:0;z-index:100;display:flex;align-items:center;
   justify-content:center;padding:24px;background:var(--bg);
@@ -45,7 +92,6 @@ svg{display:block}
   border:1px solid rgba(99,102,241,.28);color:var(--accent-hi);
   animation:float 3.4s ease-in-out infinite;}
 .lock-badge svg{width:26px;height:26px}
-@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
 .lock-inner h1{font-size:23px;font-weight:600;letter-spacing:-.02em;margin-bottom:7px}
 .lock-inner p{font-size:13px;color:var(--dim);margin-bottom:30px}
 .field input{width:100%;padding:15px 17px;border-radius:15px;
@@ -461,13 +507,25 @@ svg{display:block}
 </head>
 <body>
 
+<!-- 首屏启动过渡 -->
+<div class="boot" id="boot">
+  <div class="boot-inner">
+    <div class="boot-logo">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="1em" height="1em"><path fill="currentColor" d="M26.07 3.996a3 3 0 0 0-.933.223h-.004c-.285.113-1.64.683-3.7 1.547l-7.382 3.109c-5.297 2.23-10.504 4.426-10.504 4.426l.062-.024s-.359.118-.734.375a2 2 0 0 0-.586.567c-.184.27-.332.683-.277 1.11c.09.722.558 1.155.894 1.394c.34.242.664.355.664.355h.008l4.883 1.645c.219.703 1.488 4.875 1.793 5.836c.18.574.355.933.574 1.207q.157.21.379.351a1 1 0 0 0 .246.106l-.05-.012c.015.004.027.016.038.02c.04.011.067.015.118.023c.773.234 1.394-.246 1.394-.246l.035-.028l2.883-2.625l4.832 3.707l.11.047c1.007.442 2.027.196 2.566-.238c.543-.437.754-.996.754-.996l.035-.09l3.734-19.129c.106-.472.133-.914.016-1.343a1.8 1.8 0 0 0-.781-1.047a1.87 1.87 0 0 0-1.067-.27m-.101 2.05c-.004.063.008.056-.02.177v.011l-3.699 18.93c-.016.027-.043.086-.117.145c-.078.062-.14.101-.465-.028l-5.91-4.531l-3.57 3.254l.75-4.79l9.656-9c.398-.37.265-.448.265-.448c.028-.454-.601-.133-.601-.133l-12.176 7.543l-.004-.02l-5.836-1.965v-.004l-.015-.003l.03-.012l.032-.016l.031-.011s5.211-2.196 10.508-4.426c2.652-1.117 5.324-2.242 7.379-3.11a807 807 0 0 1 3.66-1.53c.082-.032.043-.032.102-.032z"/></svg>
+    </div>
+    <div class="boot-name">FlyPaste</div>
+    <div class="boot-sub">Encrypted Clipboard</div>
+    <div class="boot-dots"><i></i><i></i><i></i></div>
+  </div>
+</div>
+
 <!-- 锁屏 -->
 <div class="lock" id="lock">
   <div class="lock-inner">
     <div class="lock-badge">
       <svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
     </div>
-    <h1>剪贴板</h1>
+    <h1>FlyPaste</h1>
     <p>跨设备同步 · 文本端到端加密</p>
     <div class="field">
       <input id="pw" type="password" placeholder="访问密码" autocomplete="current-password">
@@ -481,7 +539,7 @@ svg{display:block}
 <!-- 主页 -->
 <div class="app gone" id="app">
   <div class="top">
-    <div class="brand">Clipboard</div>
+    <div class="brand">FlyPaste</div>
     <div class="top-actions">
       <div class="pill"><i class="dot"></i>已连接</div>
       <button class="mini" id="logoutAllBtn" title="退出所有设备">
@@ -697,14 +755,21 @@ async function api(method, path, opts = {}) {
 }
 
 /* ============================================================
- * 锁屏
+ * 锁屏 / 首屏启动层
  * ============================================================ */
 const lockEl = $('#lock');
 const appEl = $('#app');
+const bootEl = $('#boot');
 const pwInput = $('#pw');
 const unlockBtn = $('#unlockBtn');
 const lockErr = $('#lockErr');
 const historySheet = $('#historySheet');
+
+function hideBoot() {
+  if (!bootEl) return;
+  bootEl.classList.add('gone');
+  setTimeout(() => { bootEl.style.display = 'none'; }, 560);
+}
 
 function showLock() {
   lockEl.classList.remove('gone');
@@ -1593,16 +1658,29 @@ window.addEventListener('drop', e => e.preventDefault());
 /* ============================================================
  * 启动
  * ============================================================ */
+const MIN_BOOT = 700;   // 启动页最短展示时长，避免一闪而过
+
 async function init() {
-  const pw = sessionStorage.getItem('clip.pw');
+  const started = Date.now();
+
+  // 统一的「收尾」：保证启动页至少停留 MIN_BOOT，再淡出并进入目标界面
+  async function settle(show) {
+    const rest = MIN_BOOT - (Date.now() - started);
+    if (rest > 0) await new Promise(r => setTimeout(r, rest));
+    hideBoot();
+    show();
+  }
+
+  let pw = null;
+  try { pw = sessionStorage.getItem('clip.pw'); } catch {}
+
   if (pw) {
     try {
       const r = await fetch('/api/session', { credentials: 'same-origin' });
       const data = await r.json();
       if (data.ok) {
         cryptoKey = await deriveKey(pw);
-        showApp();
-        return;
+        return settle(showApp);
       }
       const lr = await fetch('/api/login', {
         method: 'POST',
@@ -1612,16 +1690,18 @@ async function init() {
       });
       if (lr.ok) {
         cryptoKey = await deriveKey(pw);
-        showApp();
-        return;
+        return settle(showApp);
       }
-      sessionStorage.removeItem('clip.pw');
+      try { sessionStorage.removeItem('clip.pw'); } catch {}
     } catch {
-      sessionStorage.removeItem('clip.pw');
+      try { sessionStorage.removeItem('clip.pw'); } catch {}
     }
   }
-  showLock();
-  pwInput.focus();
+
+  await settle(() => {
+    showLock();
+    pwInput.focus();
+  });
 }
 
 init();
