@@ -1,0 +1,14 @@
+name = "clip"
+main = "src/index.js"
+compatibility_date = "2024-11-06"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "clip"
+
+[triggers]
+crons = ["0 */6 * * *"]
