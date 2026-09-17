@@ -8,6 +8,9 @@ const LOGIN_MAX_ATTEMPTS = 5;
 const JSON_MAX_BYTES = 1_000_000;
 const MERGE_WINDOW = 5 * 60_000;
 
+// head 并发数：避免一次请求打爆 R2
+const HEAD_CONCURRENCY = 10;
+
 const SAFE_INLINE_TYPES = new Set([
   'image/jpeg', 'image/jpg', 'image/png', 'image/gif',
   'image/webp', 'image/avif', 'image/bmp',
@@ -155,6 +158,40 @@ async function* listAll(bucket, opts = {}) {
     pages++;
     if (pages > 100) break;
   } while (cursor);
+}
+
+/* ---------- 并发 head 补齐元数据 ---------- */
+async function ensureMetadata(bucket, objects) {
+  // objects: list 返回的原始对象数组
+  // 返回 [{ o, meta }]
+  const result = [];
+  const needHead = [];
+
+  for (const o of objects) {
+    if (o.customMetadata && o.customMetadata.n) {
+      result.push({ o, meta: o.customMetadata });
+    } else {
+      needHead.push(o);
+    }
+  }
+
+  // 分批并发 head
+  for (let i = 0; i < needHead.length; i += HEAD_CONCURRENCY) {
+    const batch = needHead.slice(i, i + HEAD_CONCURRENCY);
+    const heads = await Promise.all(
+      batch.map(async (o) => {
+        try {
+          const h = await bucket.head(o.key);
+          return { o, meta: h?.customMetadata || {} };
+        } catch {
+          return { o, meta: {} };
+        }
+      })
+    );
+    result.push(...heads);
+  }
+
+  return result;
 }
 
 export default {
@@ -407,28 +444,35 @@ export default {
 
     /* ---------- 文件 ---------- */
     if (path === '/api/files' && request.method === 'GET') {
-      const files = [];
       const gc = [];
+      const rawObjects = [];
 
       for await (const o of listAll(env.BUCKET, {})) {
         if (o.key.startsWith('session/') ||
             o.key.startsWith('text/') ||
             o.key.startsWith('ratelimit/')) continue;
+        rawObjects.push(o);
+      }
 
-        if (isExpired(o.customMetadata)) {
+      // list 可能不带 customMetadata，统一补齐
+      const withMeta = await ensureMetadata(env.BUCKET, rawObjects);
+
+      const files = [];
+      for (const { o, meta } of withMeta) {
+        if (isExpired(meta)) {
           gc.push(env.BUCKET.delete(o.key));
           continue;
         }
-
         files.push({
           key: o.key,
           size: o.size,
           uploaded: o.uploaded,
-          name: o.customMetadata?.n || o.key,
-          type: safeMime(o.customMetadata?.t),
-          exp: parseTs(o.customMetadata?.e, 0),
+          name: meta.n || o.key,
+          type: safeMime(meta.t),
+          exp: parseTs(meta.e, 0),
         });
       }
+
       if (gc.length) ctx.waitUntil(Promise.all(gc));
 
       files.sort((a, b) => b.uploaded - a.uploaded);
