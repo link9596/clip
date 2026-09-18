@@ -134,11 +134,15 @@ svg{display:block}
 .conv-item{
   position:relative;display:flex;align-items:center;gap:2px;
   padding:6px 6px 6px 12px;border-radius:11px;
-  transition:background .18s;
+  transition:background .18s, opacity .25s var(--ease);
 }
 .conv-item:hover{background:rgba(255,255,255,.055)}
 .conv-item.active{background:rgba(99,102,241,.14)}
 .conv-item.active .conv-name{color:var(--accent-hi)}
+.conv-item.deleting{
+  opacity:.35;
+  pointer-events:none;
+}
 
 .conv-main{
   flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;
@@ -148,6 +152,7 @@ svg{display:block}
   font-size:13.5px;font-weight:500;color:var(--fg);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   display:flex;align-items:center;gap:5px;
+  transition:opacity .2s var(--ease);
 }
 .conv-item.pinned .conv-name::before{
   content:'';flex-shrink:0;
@@ -174,7 +179,9 @@ svg{display:block}
   width:100%;background:rgba(255,255,255,.08);
   border:1px solid rgba(99,102,241,.5);border-radius:8px;
   padding:3px 8px;font-size:13px;color:inherit;outline:none;
+  transition:opacity .2s var(--ease);
 }
+.conv-rename-input.saving{opacity:.5;cursor:wait;}
 
 .sb-empty{padding:28px 12px;text-align:center;font-size:12.5px;color:var(--dim2)}
 .sb-foot{padding:10px;border-top:1px solid var(--line);}
@@ -254,8 +261,15 @@ svg{display:block}
   padding:8px 0 2px;user-select:none;}
 
 .msg{display:flex;flex-direction:column;align-items:flex-start;
-  max-width:100%;animation:msgIn .34s var(--ease) both;}
+  max-width:100%;animation:msgIn .34s var(--ease);}
 @keyframes msgIn{from{opacity:0;transform:translateY(8px) scale(.985)}}
+
+/* 消息删除中：半透明 + 禁用交互 */
+.msg.deleting{
+  opacity:.35;
+  pointer-events:none;
+  transition:opacity .25s var(--ease);
+}
 
 .msg.text .bubble{
   max-width:min(680px,100%);
@@ -334,7 +348,9 @@ svg{display:block}
 
 .rename-input{width:100%;background:rgba(255,255,255,.06);
   border:1px solid rgba(99,102,241,.5);border-radius:8px;padding:3px 8px;
-  font-size:14px;color:inherit;outline:none;}
+  font-size:14px;color:inherit;outline:none;
+  transition:opacity .2s var(--ease);}
+.rename-input.saving{opacity:.5;cursor:wait;}
 
 .empty-state{
   margin:auto;text-align:center;padding:40px 20px;
@@ -415,7 +431,6 @@ svg{display:block}
     0 0 76px rgba(99,102,241,.05);
 }
 
-/* 待发送文件卡片（横向自由滚动） */
 .attach-preview{
   display:flex;
   flex-wrap:nowrap;
@@ -511,8 +526,6 @@ svg{display:block}
 .icon-btn.send:disabled{
   opacity:.3;cursor:default;filter:none;transform:none;
 }
-
-/* 发送按钮的 busy 状态：显示转圈 */
 .icon-btn.send.busy,
 .icon-btn.send.busy:disabled{
   opacity:1;
@@ -653,9 +666,6 @@ svg{display:block}
 </head>
 <body>
 
-<!-- ============================================================
-     启动层
-     ============================================================ -->
 <div class="boot" id="boot">
   <div class="boot-stage" id="bootStage">
     <div class="boot-head">
@@ -677,9 +687,6 @@ svg{display:block}
   </div>
 </div>
 
-<!-- ============================================================
-     主应用
-     ============================================================ -->
 <div class="app gone" id="app">
 
   <aside class="sidebar" id="sidebar">
@@ -1068,10 +1075,20 @@ $('#logoutAllBtn').onclick = async () => {
 /* ============================================================
  * 对话
  * ============================================================ */
+function sortConversations() {
+  conversations.sort((a, b) => {
+    const ap = a.pinned ? 1 : 0;
+    const bp = b.pinned ? 1 : 0;
+    if (ap !== bp) return bp - ap;
+    return (b.updated || 0) - (a.updated || 0);
+  });
+}
+
 async function loadConversations() {
   try {
     const { conversations: list } = await (await api('GET', '/api/conversations')).json();
     conversations = list || [];
+    sortConversations();
   } catch {
     conversations = [];
   }
@@ -1108,7 +1125,12 @@ function renderConvList() {
     moreBtn.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>';
     moreBtn.onclick = (e) => {
       e.stopPropagation();
-      openConvMenu(c, moreBtn);
+      // 同一个按钮再次点击 → 关闭菜单；否则打开
+      if (convMenuEl && convMenuAnchor === moreBtn) {
+        closeConvMenu();
+      } else {
+        openConvMenu(c, moreBtn);
+      }
     };
 
     el.appendChild(main);
@@ -1117,7 +1139,7 @@ function renderConvList() {
   }
 }
 
-/* ---- 三个点菜单（右边缘对齐按钮） ---- */
+/* ---- 三个点菜单 ---- */
 function closeConvMenu() {
   if (convMenuEl) {
     convMenuEl.remove();
@@ -1169,7 +1191,6 @@ function openConvMenu(conv, anchor) {
     top = Math.max(8, r.top - menuH - 6);
   }
 
-  // 右边缘与三点按钮右边缘对齐
   let left = r.right - menuW;
   if (left < 8) left = 8;
 
@@ -1178,30 +1199,46 @@ function openConvMenu(conv, anchor) {
   menu.style.left = left + 'px';
   menu.style.zIndex = 300;
 
+  /* 置顶：乐观更新 */
   menu.querySelector('[data-act="pin"]').onclick = async () => {
     closeConvMenu();
+    const oldPinned = !!conv.pinned;
+    conv.pinned = !oldPinned;
+    sortConversations();
+    renderConvList();
     try {
       await api('PATCH', '/api/conversations/' + conv.id, {
         headers: jsonHeaders,
-        body: JSON.stringify({ pinned: !conv.pinned })
+        body: JSON.stringify({ pinned: conv.pinned })
       });
-      await loadConversations();
-    } catch { alert('操作失败'); }
+    } catch {
+      conv.pinned = oldPinned;
+      sortConversations();
+      renderConvList();
+      alert('操作失败');
+    }
   };
+
   menu.querySelector('[data-act="rename"]').onclick = () => {
     closeConvMenu();
     startRenameConv(conv);
   };
+
+  /* 删除对话：加 deleting 状态 */
   menu.querySelector('[data-act="delete"]').onclick = async () => {
     closeConvMenu();
     if (!await confirmDialog(`删除对话「${conv.name}」？\n该对话下所有文本和文件都会从服务器彻底删除。`)) return;
+
+    const item = convList.querySelector(`.conv-item[data-id="${conv.id}"]`);
+    if (item) item.classList.add('deleting');
+
     try {
       await api('DELETE', '/api/conversations/' + conv.id);
       decryptCache.clear();
       if (currentConv?.id === conv.id) {
         currentConv = null;
         messages = [];
-        $('#msgs').innerHTML = '';
+        msgsEl.innerHTML = '';
         $('#chatTitle').textContent = '对话';
       }
       await loadConversations();
@@ -1210,7 +1247,10 @@ function openConvMenu(conv, anchor) {
       } else if (!conversations.length) {
         await createConversation();
       }
-    } catch { alert('删除失败'); }
+    } catch {
+      if (item) item.classList.remove('deleting');
+      alert('删除失败');
+    }
   };
 
   convMenuEl = menu;
@@ -1220,15 +1260,17 @@ function openConvMenu(conv, anchor) {
   }, 0);
 }
 
+/* ---- 重命名对话：乐观更新 ---- */
 function startRenameConv(conv) {
   const item = convList.querySelector(`.conv-item[data-id="${conv.id}"]`);
   if (!item) return;
   const nameEl = item.querySelector('.conv-name');
   if (!nameEl || item.querySelector('.conv-rename-input')) return;
 
+  const oldName = conv.name;
   const input = document.createElement('input');
   input.className = 'conv-rename-input';
-  input.value = conv.name;
+  input.value = oldName;
   nameEl.replaceWith(input);
   input.focus();
   input.select();
@@ -1238,18 +1280,34 @@ function startRenameConv(conv) {
     if (done) return;
     done = true;
     const v = input.value.trim();
-    if (save && v && v !== conv.name) {
-      try {
-        await api('PATCH', '/api/conversations/' + conv.id, {
-          headers: jsonHeaders,
-          body: JSON.stringify({ name: v })
-        });
-        conv.name = v;
-        nameEl.textContent = v;
-        if (currentConv?.id === conv.id) $('#chatTitle').textContent = v;
-      } catch { alert('重命名失败'); }
+
+    if (!save || !v || v === oldName) {
+      input.replaceWith(nameEl);
+      return;
     }
+
+    // 先更新 UI（乐观）
+    conv.name = v;
+    nameEl.textContent = v;
     input.replaceWith(nameEl);
+    if (currentConv?.id === conv.id) $('#chatTitle').textContent = v;
+
+    nameEl.style.opacity = '.6';
+
+    try {
+      await api('PATCH', '/api/conversations/' + conv.id, {
+        headers: jsonHeaders,
+        body: JSON.stringify({ name: v })
+      });
+      nameEl.style.opacity = '';
+    } catch {
+      // 回滚
+      conv.name = oldName;
+      nameEl.textContent = oldName;
+      if (currentConv?.id === conv.id) $('#chatTitle').textContent = oldName;
+      nameEl.style.opacity = '';
+      alert('重命名失败');
+    }
   };
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); finish(true); }
@@ -1380,7 +1438,6 @@ function renderMessage(m) {
     const acts = document.createElement('div');
     acts.className = 'msg-acts';
 
-    /* 复制（纯图标，成功后变勾） */
     const copyBtn = document.createElement('button');
     copyBtn.className = 'msg-act';
     copyBtn.title = '复制';
@@ -1408,14 +1465,12 @@ function renderMessage(m) {
       }, 1400);
     };
 
-    /* 查看（眼睛） */
     const viewBtn = document.createElement('button');
     viewBtn.className = 'msg-act';
     viewBtn.title = '查看';
     viewBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
     viewBtn.onclick = () => openPreview(m);
 
-    /* 删除（垃圾桶） */
     const delBtn = document.createElement('button');
     delBtn.className = 'msg-act danger';
     delBtn.title = '删除';
@@ -1518,6 +1573,7 @@ function downloadFile(m) {
   a.remove();
 }
 
+/* ---- 文件重命名：乐观更新 ---- */
 async function startRename(card, nameEl, m) {
   if (card.querySelector('.rename-input')) return;
   const oldName = m.n;
@@ -1537,15 +1593,25 @@ async function startRename(card, nameEl, m) {
       input.replaceWith(nameEl);
       return;
     }
+
+    // 乐观更新
+    m.n = newName;
+    nameEl.textContent = newName;
+    input.replaceWith(nameEl);
+    nameEl.style.opacity = '.6';
+
     try {
       await api('PATCH', `/api/conversations/${currentConv.id}/messages/${m.id}`, {
         headers: jsonHeaders,
         body: JSON.stringify({ n: newName })
       });
-      m.n = newName;
-      nameEl.textContent = newName;
-    } catch { alert('重命名失败'); }
-    input.replaceWith(nameEl);
+      nameEl.style.opacity = '';
+    } catch {
+      m.n = oldName;
+      nameEl.textContent = oldName;
+      nameEl.style.opacity = '';
+      alert('重命名失败');
+    }
   };
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); finish(true); }
@@ -1554,24 +1620,53 @@ async function startRename(card, nameEl, m) {
   input.addEventListener('blur', () => finish(true));
 }
 
+/* ---- 删除消息：deleting 状态 + FLIP 位移动画 ---- */
 async function deleteMessage(m, wrap) {
   if (!await confirmDialog(m.t === 'file' ? '删除这条文件消息？文件也会被删除。' : '删除这条消息？')) return;
+
+  // 立即显示删除中状态
+  wrap.classList.add('deleting');
+
   try {
     await api('DELETE', `/api/conversations/${currentConv.id}/messages/${m.id}`);
   } catch {
+    wrap.classList.remove('deleting');
     alert('删除失败');
     return;
   }
+
   decryptCache.delete(m.id);
   messages = messages.filter(x => x.id !== m.id);
 
-  wrap.style.transition = 'opacity .25s ease, transform .3s cubic-bezier(.22,1,.36,1)';
-  wrap.style.opacity = '0';
-  wrap.style.transform = 'translateX(-14px) scale(.96)';
-  setTimeout(() => {
-    wrap.remove();
-    if (!msgsEl.querySelector('.msg')) renderMessages();
-  }, 260);
+  // FLIP：记录其他消息的旧位置
+  const others = [...msgsEl.querySelectorAll('.msg')].filter(el => el !== wrap);
+  const prevPositions = new Map();
+  others.forEach(el => prevPositions.set(el.dataset.id, el.getBoundingClientRect().top));
+
+  // 移除被删除的消息
+  wrap.remove();
+
+  // 播放 FLIP 位移动画
+  others.forEach(el => {
+    const prev = prevPositions.get(el.dataset.id);
+    if (prev == null) return;
+    const now = el.getBoundingClientRect().top;
+    const delta = prev - now;
+    if (Math.abs(delta) < 1) return;
+
+    el.style.animation = 'none';
+    el.style.transition = 'none';
+    el.style.transform = `translateY(${delta}px)`;
+    void el.offsetHeight; // 强制重排
+    el.style.transition = 'transform .4s cubic-bezier(.22,1,.36,1)';
+    el.style.transform = '';
+    setTimeout(() => {
+      el.style.transition = '';
+      el.style.transform = '';
+    }, 440);
+  });
+
+  if (!msgsEl.querySelector('.msg')) renderMessages();
 }
 
 /* ============================================================
@@ -1726,7 +1821,7 @@ async function send() {
 }
 
 /* ============================================================
- * 上传
+ * 上传：全部卡片先显示，再串行上传
  * ============================================================ */
 function createUploadCard(file) {
   const wrap = document.createElement('div');
@@ -1791,43 +1886,69 @@ async function uploadAndSend(files) {
   const convId = currentConv.id;
   const expSec = parseInt($('#expiryDD').dataset.value, 10) || 0;
 
-  for (const file of files) {
-    const { wrap, card, metaEl, thumb } = createUploadCard(file);
-    msgsEl.appendChild(wrap);
-    scrollToBottom();
+  // 1. 所有文件一次性创建卡片，显示"等待上传…"
+  const items = files.map(file => {
+    const item = createUploadCard(file);
+    item.file = file;
+    item.metaEl.textContent = '等待上传…';
+    msgsEl.appendChild(item.wrap);
+    return item;
+  });
+  scrollToBottom();
 
-    try {
-      const meta = await uploadWithProgress(file, expSec, (p) => {
-        card.style.setProperty('--progress', (p * 100).toFixed(1) + '%');
-        metaEl.textContent = '上传中 ' + Math.round(p * 100) + '%';
-      });
-
-      card.style.setProperty('--progress', '100%');
-      metaEl.textContent = '处理中…';
-
-      await api('POST', `/api/conversations/${convId}/messages`, {
-        headers: jsonHeaders,
-        body: JSON.stringify({
-          t: 'file',
-          k: meta.key,
-          n: meta.name || file.name,
-          s: file.size,
-          m: file.type || 'application/octet-stream',
-          e: meta.exp || 0
-        })
-      });
-      wrap.remove();
-    } catch (e) {
-      card.classList.remove('uploading');
-      card.classList.add('failed');
-      metaEl.textContent = e.message === '401' ? '会话失效' : (e.message || '上传失败');
-      metaEl.style.color = 'var(--danger)';
-      thumb.innerHTML = '<svg viewBox="0 0 24 24" style="stroke:#f87171;stroke-width:2.2;fill:none;stroke-linecap:round;stroke-linejoin:round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-    }
+  // 2. 串行上传（保持消息顺序），每个文件独立更新进度
+  for (const item of items) {
+    await uploadOne(item, convId, expSec);
   }
 
-  await refreshMessages(true);
   await loadConversations();
+}
+
+async function uploadOne(item, convId, expSec) {
+  const { file, wrap, card, metaEl, thumb } = item;
+  try {
+    const meta = await uploadWithProgress(file, expSec, (p) => {
+      card.style.setProperty('--progress', (p * 100).toFixed(1) + '%');
+      metaEl.textContent = '上传中 ' + Math.round(p * 100) + '%';
+    });
+
+    card.style.setProperty('--progress', '100%');
+    metaEl.textContent = '处理中…';
+
+    const result = await (await api('POST', `/api/conversations/${convId}/messages`, {
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        t: 'file',
+        k: meta.key,
+        n: meta.name || file.name,
+        s: file.size,
+        m: file.type || 'application/octet-stream',
+        e: meta.exp || 0
+      })
+    })).json();
+
+    // 用正式消息卡片替换上传卡片
+    const msgData = {
+      id: result.id,
+      t: 'file',
+      ts: result.ts,
+      k: meta.key,
+      n: meta.name || file.name,
+      s: file.size,
+      m: file.type || 'application/octet-stream',
+      e: meta.exp || 0
+    };
+    messages.push(msgData);
+    const newEl = renderMessage(msgData);
+    newEl.style.animation = 'none';
+    wrap.replaceWith(newEl);
+  } catch (e) {
+    card.classList.remove('uploading');
+    card.classList.add('failed');
+    metaEl.textContent = e.message === '401' ? '会话失效' : (e.message || '上传失败');
+    metaEl.style.color = 'var(--danger)';
+    thumb.innerHTML = '<svg viewBox="0 0 24 24" style="stroke:#f87171;stroke-width:2.2;fill:none;stroke-linecap:round;stroke-linejoin:round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  }
 }
 
 /* ============================================================
@@ -1883,6 +2004,8 @@ document.addEventListener('visibilitychange', () => {
 
 async function pollMessages() {
   if (!currentConv || document.hidden || pollInFlight) return;
+  // 上传中不打断
+  if (sending) return;
   pollInFlight = true;
   try {
     const { messages: raw } = await (await api(
