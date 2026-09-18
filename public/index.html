@@ -53,17 +53,16 @@ svg{display:block}
 }
 .boot-stage{position:relative;width:100%;max-width:340px;}
 
-/* 标题区外层：用 transform 做位移（GPU 加速），与内层 bootIn 动画分层互不干扰 */
+/* 标题区：外层用 transform 位移（GPU 合成） */
 .boot-head-wrap{
   transform: translateZ(0) translateY(0);
   transition: transform .88s var(--ease-soft);
   will-change: transform;
 }
 .boot.login .boot-head-wrap{
-  transform: translateZ(0) translateY(-150px);
+  transform: translateZ(0) translateY(-110px);
 }
 
-/* 内层：只负责入场动画 */
 .boot-head{
   display:flex;flex-direction:column;align-items:center;
   animation:bootIn .7s var(--ease-soft) both;
@@ -90,22 +89,20 @@ svg{display:block}
 .boot-dots i:nth-child(3){animation-delay:.32s}
 @keyframes dotPulse{0%,70%,100%{opacity:.22;transform:scale(.68)}35%{opacity:1;transform:scale(1)}}
 
-/* 登录操作区：定位在 stage 下方，随标题上移留出更大间距 */
+/* 登录操作区：密码框 + 解锁按钮，保留淡入上移动画，幅度加大到 40px */
 .boot-form{position:absolute;left:0;right:0;top:calc(100% + 8px);display:flex;flex-direction:column;}
-
-/* 密码框与解锁按钮：保留淡入上移动画 */
 .boot-field,.boot-btn{
   opacity:0;
-  transform:translateY(22px);
+  transform:translateY(40px);
   pointer-events:none;
   will-change:transform,opacity;
 }
 .boot-field{
-  transition:opacity .5s var(--ease),transform .72s var(--ease-soft);
+  transition:opacity .55s var(--ease),transform .85s var(--ease-soft);
 }
 .boot-btn{
   margin-top:16px;
-  transition:opacity .5s var(--ease),transform .72s var(--ease-soft);
+  transition:opacity .55s var(--ease),transform .85s var(--ease-soft);
 }
 .boot.login .boot-field{
   opacity:1;transform:translateY(0);
@@ -368,7 +365,43 @@ svg{display:block}
   display:flex;align-items:center;gap:8px;
   margin-top:4px;padding:0 4px;min-height:20px;
 }
-.msg-time{font-size:11px;color:var(--dim2);}
+.msg-time{
+  font-size:11px;color:var(--dim2);
+  transition:opacity .18s var(--ease);
+  will-change:opacity;
+}
+
+/* ===== 发送中：旧版 iPhone 滑动解锁般的浮光掠过文字 ===== */
+.msg-time.status-sending{
+  color:transparent;
+  -webkit-text-fill-color:transparent;
+  background-image:linear-gradient(
+    90deg,
+    rgba(139,139,148,.38) 0%,
+    rgba(139,139,148,.38) 32%,
+    rgba(244,244,246,1) 50%,
+    rgba(139,139,148,.38) 68%,
+    rgba(139,139,148,.38) 100%
+  );
+  background-size:260% 100%;
+  background-position:100% 0;
+  background-repeat:no-repeat;
+  -webkit-background-clip:text;
+  background-clip:text;
+  animation:shine 1.5s linear infinite;
+}
+@keyframes shine{
+  0%{background-position:100% 0}
+  100%{background-position:-160% 0}
+}
+
+/* ===== 已发送：绿色打勾 ===== */
+.msg-time.status-sent{
+  color:var(--ok);
+  font-weight:600;
+  letter-spacing:.02em;
+}
+
 .msg-acts{display:flex;gap:2px;opacity:0;transition:opacity .2s;}
 .msg:hover .msg-acts{opacity:1}
 @media (hover:none){.msg-acts{opacity:1}}
@@ -1048,6 +1081,20 @@ function iconFor(type, name) {
   return '<svg viewBox="0 0 24 24"><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/></svg>';
 }
 function confirmDialog(text){ return Promise.resolve(window.confirm(text)); }
+function dayLabel(ts) {
+  const d = new Date(ts);
+  const today = new Date();
+  const yesterday = new Date(Date.now() - 86400000);
+  if (d.toDateString() === today.toDateString()) return '今天';
+  if (d.toDateString() === yesterday.toDateString()) return '昨天';
+  return d.toLocaleDateString('zh-CN', { year:'numeric', month:'long', day:'numeric' });
+}
+function addDayDivider(ts) {
+  const d = document.createElement('div');
+  d.className = 'day';
+  d.textContent = dayLabel(ts);
+  msgsEl.appendChild(d);
+}
 
 /* ============================================================
  * 下拉
@@ -1465,12 +1512,7 @@ function renderMessages() {
       lastDay = day;
       const d = document.createElement('div');
       d.className = 'day';
-      const dt = new Date(m.ts);
-      const today = new Date();
-      const yesterday = new Date(Date.now() - 86400000);
-      if (dt.toDateString() === today.toDateString()) d.textContent = '今天';
-      else if (dt.toDateString() === yesterday.toDateString()) d.textContent = '昨天';
-      else d.textContent = dt.toLocaleDateString('zh-CN', { year:'numeric', month:'long', day:'numeric' });
+      d.textContent = dayLabel(m.ts);
       msgsEl.appendChild(d);
     }
     msgsEl.appendChild(renderMessage(m));
@@ -1721,6 +1763,81 @@ async function deleteMessage(m, wrap) {
 }
 
 /* ============================================================
+ * 文本状态切换（带淡出淡入）
+ * ============================================================ */
+function transitionStatus(el, className, text, fadeMs) {
+  fadeMs = fadeMs || 180;
+  return new Promise(resolve => {
+    el.style.opacity = '0';
+    setTimeout(() => {
+      el.className = 'msg-time' + (className ? ' ' + className : '');
+      el.textContent = text;
+      el.style.opacity = '1';
+      setTimeout(resolve, fadeMs);
+    }, fadeMs);
+  });
+}
+
+/* ============================================================
+ * 乐观发送文本
+ * ============================================================ */
+async function sendTextOptimistic(text) {
+  const tempId = 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  const now = Date.now();
+  const msgData = { id: tempId, t: 'text', ts: now, text };
+
+  decryptCache.set(tempId, text);
+  messages.push(msgData);
+
+  const msgEl = renderMessage(msgData);
+  msgEl.dataset.id = tempId;
+
+  // 把时间替换为"发送中"状态
+  const timeEl = msgEl.querySelector('.msg-time');
+  timeEl.className = 'msg-time status-sending';
+  timeEl.textContent = '发送中';
+  timeEl.style.opacity = '1';
+
+  // 若为空状态，先清掉；并补一个 day 分隔符
+  const empty = msgsEl.querySelector('.empty-state');
+  if (empty) empty.remove();
+  const days = msgsEl.querySelectorAll('.day');
+  if (!days.length || days[days.length - 1].textContent !== dayLabel(now)) {
+    addDayDivider(now);
+  }
+  msgsEl.appendChild(msgEl);
+  scrollToBottom();
+
+  try {
+    const enc = await encryptText(cryptoKey, text);
+    const res = await (await api('POST', `/api/conversations/${currentConv.id}/messages`, {
+      headers: jsonHeaders,
+      body: JSON.stringify({ t: 'text', v: enc })
+    })).json();
+
+    // 用真实 id/ts 更新本地
+    msgData.id = res.id;
+    msgData.ts = res.ts;
+    msgEl.dataset.id = res.id;
+    decryptCache.delete(tempId);
+    decryptCache.set(res.id, text);
+
+    // 已发送 → 时间
+    await transitionStatus(timeEl, 'status-sent', '已发送 ✓');
+    await new Promise(r => setTimeout(r, 900));
+    await transitionStatus(timeEl, '', fmtClock(res.ts));
+  } catch (e) {
+    // 失败：从数组移除并播放消失动画
+    messages = messages.filter(x => x.id !== tempId);
+    decryptCache.delete(tempId);
+    msgEl.classList.add('deleting');
+    setTimeout(() => msgEl.remove(), 300);
+    if (e.message !== '401') alert('发送失败');
+    throw e;
+  }
+}
+
+/* ============================================================
  * 待发送文件
  * ============================================================ */
 const attachPreview = $('#attachPreview');
@@ -1851,19 +1968,14 @@ async function send() {
 
   try {
     if (text) {
-      const enc = await encryptText(cryptoKey, text);
-      await api('POST', `/api/conversations/${currentConv.id}/messages`, {
-        headers: jsonHeaders,
-        body: JSON.stringify({ t: 'text', v: enc })
-      });
-      await refreshMessages(true);
-      await loadConversations();
+      await sendTextOptimistic(text);
     }
     if (files.length) {
       await uploadAndSend(files);
     }
+    await loadConversations();
   } catch (e) {
-    if (e.message !== '401') alert('发送失败');
+    if (e.message !== '401') { /* 已在内部提示 */ }
   } finally {
     sending = false;
     setSendBusy(false);
@@ -1936,6 +2048,15 @@ async function uploadAndSend(files) {
   if (!currentConv) return;
   const convId = currentConv.id;
   const expSec = parseInt($('#expiryDD').dataset.value, 10) || 0;
+
+  // 若为空状态，清掉；确保有 day 分隔符
+  const empty = msgsEl.querySelector('.empty-state');
+  if (empty) empty.remove();
+  const now = Date.now();
+  const days = msgsEl.querySelectorAll('.day');
+  if (!days.length || days[days.length - 1].textContent !== dayLabel(now)) {
+    addDayDivider(now);
+  }
 
   const items = files.map(file => {
     const item = createUploadCard(file);
