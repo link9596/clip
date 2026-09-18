@@ -31,10 +31,10 @@ input,textarea{font:inherit;color:inherit}
 svg{display:block}
 [hidden]{display:none !important}
 
-/* 发送按钮「镂空」用的可动画自定义属性 */
+/* 发送按钮「镂空」用的可动画自定义属性（供 background-image 与 mask 共用） */
 @property --send-hole{
   syntax:'<percentage>';
-  inherits:false;
+  inherits:true;
   initial-value:0%;
 }
 
@@ -661,58 +661,86 @@ svg{display:block}
   position:relative;
   border:0;
   color:#fff;
-  --send-hole:0%;
   background-color:transparent;
   background-image:radial-gradient(circle at 50% 50%,
-    rgba(99,102,241,0) 0%,
-    rgba(99,102,241,0) var(--send-hole),
+    transparent 0,
+    transparent var(--send-hole),
     var(--accent) var(--send-hole),
     var(--accent) 100%);
-  transition:transform .16s var(--ease),filter .2s var(--ease),opacity .25s var(--ease);
+  /* 镂空过渡（含恢复），双向平滑；其它属性也一并过渡 */
+  transition:
+    --send-hole .4s var(--ease),
+    transform .16s var(--ease),
+    filter .2s var(--ease),
+    opacity .25s var(--ease);
 }
 .icon-btn.send .send-ico{
-  transition:opacity .2s var(--ease),transform .3s var(--ease);
+  position:relative;
+  z-index:2;
+  transition:opacity .22s var(--ease), transform .3s var(--ease);
 }
 .icon-btn.send:hover{filter:brightness(1.1)}
+.icon-btn.send:active{transform:scale(.92)}
 .icon-btn.send:disabled{
   opacity:.3;cursor:default;filter:none;transform:none;
 }
 
-/* 发送中：不锁死透明度 */
+/* 发送中：镂空，箭头淡出 */
+.icon-btn.send.sending{
+  --send-hole:62%;
+}
 .icon-btn.send.sending,
-.icon-btn.send.sending:disabled,
-.icon-btn.send.spinning,
-.icon-btn.send.spinning:disabled{
+.icon-btn.send.spinning{
   opacity:1;
   cursor:default;
-  filter:none;
   transform:none;
+  filter:none;
 }
-
-/* 第一步：箭头淡化消失 */
 .icon-btn.send.sending .send-ico,
 .icon-btn.send.spinning .send-ico{
   opacity:0;
   transform:scale(.5);
 }
 
-/* 第二步：中心出现空心点，渐渐变大，实心圆被镂空 */
-.icon-btn.send.sending{
-  animation:sendHole .38s var(--ease) .18s forwards;
+/* 转圈进度环（叠在镂空圆之上，略小一圈） */
+.icon-btn.send::before{
+  content:'';
+  position:absolute;
+  inset:2px;
+  border-radius:50%;
+  background:conic-gradient(
+    from -90deg,
+    var(--accent-hi) 0deg,
+    var(--accent) 100deg,
+    rgba(99,102,241,.18) 200deg,
+    rgba(99,102,241,.18) 360deg
+  );
+  -webkit-mask:radial-gradient(circle at 50% 50%,
+    transparent 0,
+    transparent var(--send-hole),
+    #000 var(--send-hole),
+    #000 100%);
+  mask:radial-gradient(circle at 50% 50%,
+    transparent 0,
+    transparent var(--send-hole),
+    #000 var(--send-hole),
+    #000 100%);
+  opacity:0;
+  transform:scale(.72);
+  transition:opacity .32s var(--ease), transform .32s var(--ease);
+  pointer-events:none;
+  z-index:1;
 }
-@keyframes sendHole{
-  from{--send-hole:0%}
-  to{--send-hole:62%}
+.icon-btn.send.spinning::before{
+  opacity:1;
+  transform:scale(1);
+  animation:spin .72s linear infinite;
 }
 
-/* 第三步：变成紫色圆环进度条转圈 */
-.icon-btn.send.spinning{
-  background-image:none;
-  background-color:transparent;
-  border:2.5px solid rgba(99,102,241,.28);
-  border-top-color:var(--accent-hi);
-  box-shadow:0 0 12px rgba(99,102,241,.22);
-  animation:sp .72s linear infinite;
+/* 用独立 rotate 属性做旋转，避免与 transform:scale 冲突 */
+@keyframes spin{
+  from{ rotate:0deg; }
+  to  { rotate:360deg; }
 }
 
 /* ---------- 下拉 ---------- */
@@ -1003,7 +1031,7 @@ const $ = s => document.querySelector(s);
 /* ============================================================
  * 常量
  * ============================================================ */
-const MAX_MESSAGES = 300;  // 与服务端 MAX_MESSAGES 保持一致
+const MAX_MESSAGES = 300;
 
 /* ============================================================
  * 加密
@@ -1672,7 +1700,6 @@ function renderMessages() {
     msgsEl.appendChild(renderMessage(m));
   }
 
-  // 消息数达到上限时，底部提示
   if (messages.length >= MAX_MESSAGES) {
     const notice = document.createElement('div');
     notice.className = 'limit-notice';
@@ -1896,7 +1923,6 @@ async function startRename(card, nameEl, m) {
 async function deleteMessage(m, wrap) {
   if (!await confirmDialog(m.t === 'file' ? '删除这条文件消息？文件也会被删除。' : '删除这条消息？')) return;
 
-  // 本地消息（乐观发送的失败/未确认消息）：跳过 API
   if (m.id.startsWith('tmp-') || m._status === 'failed') {
     decryptCache.delete(m.id);
     messages = messages.filter(x => x.id !== m.id);
@@ -1966,6 +1992,9 @@ function fadeSwap(el, className, text) {
 
 /* ============================================================
  * 乐观发送文本
+ *   - 内部只负责把消息送到服务器并更新本地 id
+ *   - 「已发送」的视觉反馈由 send() 在收尾时统一驱动
+ *     保证与发送按钮动画严格同步
  * ============================================================ */
 async function sendTextOptimistic(text) {
   const tempId = 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
@@ -2001,27 +2030,15 @@ async function sendTextOptimistic(text) {
     decryptCache.set(res.id, text);
     msgEl.dataset.id = res.id;
 
-    msgData._status = 'sent';
-    const timeEl = msgEl.querySelector('.msg-time');
-    if (timeEl) {
-      await fadeSwap(timeEl, 'status-sent', '已发送 ✓');
-      await new Promise(r => setTimeout(r, 900));
-      msgData._status = undefined;
-      if (timeEl.isConnected) {
-        await fadeSwap(timeEl, '', fmtClock(res.ts));
-      }
-    }
+    // 只返回结果，不做「已发送」视觉切换
+    return { msgData, msgEl, resTs: res.ts };
   } catch (e) {
-    // 失败：标记为 failed，保留在聊天里显示红色状态，等下次轮询自动移除
     msgData._status = 'failed';
     msgEl.classList.add('failed');
     const timeEl = msgEl.querySelector('.msg-time');
     if (timeEl) await fadeSwap(timeEl, 'status-failed', '发送失败');
 
-    // toast 提示
-    if (e.message === '401') {
-      // lockScreen 已经处理
-    } else {
+    if (e.message !== '401') {
       showToast('发送失败', 'error');
     }
     throw e;
@@ -2088,8 +2105,8 @@ const sendBtn = $('#sendBtn');
 const attachBtn = $('#attachBtn');
 const fileInput = $('#fileInput');
 
-/* 发送按钮三阶段动画：箭头淡出 → 中心镂空 → 旋转进度环 */
-const HOLE_DURATION = 620;
+/* 发送按钮三阶段动画：箭头淡出 → 镂空 → 转圈进度条 */
+const HOLE_DURATION = 400;   // 与 CSS --send-hole transition 时长保持一致
 
 function setSendBusy(busy) {
   if (busy) {
@@ -2162,12 +2179,15 @@ async function send() {
   renderAttachPreview();
   updateSendState();
 
+  // 暂存文本消息的发送结果，等所有发送动作结束后再统一显示「已发送」
+  let sentText = null;
+
   try {
     if (text) {
       try {
-        await sendTextOptimistic(text);
+        sentText = await sendTextOptimistic(text);
       } catch (e) {
-        // 已在内部提示，不再二次 alert
+        // 失败已在内部处理
       }
     }
     if (files.length) {
@@ -2177,9 +2197,24 @@ async function send() {
   } catch (e) {
     if (e.message !== '401') { /* 已内部提示 */ }
   } finally {
+    // 关键：先恢复按钮（同步触发恢复过渡），再驱动「已发送」文本反馈
     sending = false;
     setSendBusy(false);
     updateSendState();
+
+    if (sentText) {
+      const { msgData, msgEl, resTs } = sentText;
+      const timeEl = msgEl.querySelector('.msg-time');
+      if (timeEl && timeEl.isConnected) {
+        msgData._status = 'sent';
+        await fadeSwap(timeEl, 'status-sent', '已发送 ✓');
+        await new Promise(r => setTimeout(r, 900));
+        msgData._status = undefined;
+        if (timeEl.isConnected) {
+          await fadeSwap(timeEl, '', fmtClock(resTs));
+        }
+      }
+    }
   }
 }
 
@@ -2377,7 +2412,6 @@ async function pollMessages() {
   if (!currentConv || document.hidden || pollInFlight) return;
   if (sending) return;
 
-  // 1. 清理发送失败的消息（已有 toast 提示，等下次轮询自动移除）
   const failedMsgs = messages.filter(m => m._status === 'failed');
   if (failedMsgs.length) {
     for (const fm of failedMsgs) {
@@ -2394,7 +2428,6 @@ async function pollMessages() {
     if (!messages.length) renderMessages();
   }
 
-  // 2. 还有正在发送中的乐观消息 → 跳过本轮，避免覆盖
   if (messages.some(m => m._status === 'sending')) return;
 
   pollInFlight = true;
