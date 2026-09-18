@@ -688,15 +688,35 @@ svg{display:block}
   z-index:0;
 }
 
-/* ::after —— 旋转圆弧进度条 */
+/* ::after —— 单段圆弧进度条（conic-gradient + mask 环形） */
 .icon-btn.send::after{
   content:'';
   position:absolute;
   inset:2px;
   border-radius:50%;
-  border:2.5px solid rgba(99,102,241,.18);
-  border-top-color:var(--accent-hi);
-  border-right-color:var(--accent);
+  /* 只画一段约 100° 的弧，其余完全透明 */
+  background:conic-gradient(
+    from -90deg,
+    var(--accent-hi) 0deg,
+    var(--accent) 60deg,
+    transparent 100deg,
+    transparent 360deg
+  );
+  /* 用 mask 把实心圆裁成圆环 */
+  -webkit-mask:radial-gradient(circle at 50% 50%,
+    transparent 0,
+    transparent calc(50% - 2.5px),
+    #000 calc(50% - 2.5px),
+    #000 50%,
+    transparent 50%,
+    transparent 100%);
+  mask:radial-gradient(circle at 50% 50%,
+    transparent 0,
+    transparent calc(50% - 2.5px),
+    #000 calc(50% - 2.5px),
+    #000 50%,
+    transparent 50%,
+    transparent 100%);
   opacity:0;
   transition:opacity .3s var(--ease);
   pointer-events:none;
@@ -746,7 +766,7 @@ svg{display:block}
   transform:scale(.88);
 }
 
-/* 旋转中：背景淡出，弧线圆环淡入并转圈 */
+/* 旋转中：背景淡出，单段圆弧圆环淡入并转圈 */
 .icon-btn.send.spinning::before{
   opacity:0;
 }
@@ -2009,8 +2029,6 @@ function fadeSwap(el, className, text) {
 
 /* ============================================================
  * 乐观发送文本
- *   - 内部只负责把消息送到服务器并更新本地 id
- *   - 「已发送」的视觉反馈由 send() 在收尾时统一驱动
  * ============================================================ */
 async function sendTextOptimistic(text) {
   const tempId = 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
@@ -2120,8 +2138,7 @@ const sendBtn = $('#sendBtn');
 const attachBtn = $('#attachBtn');
 const fileInput = $('#fileInput');
 
-/* 发送按钮动画：箭头淡出 → 镂空扩大+外圈缩小 → 弧线进度条转圈 */
-const HOLE_DURATION = 400;   // 与 CSS --send-hole / transform 过渡时长一致
+const HOLE_DURATION = 400;
 
 function setSendBusy(busy) {
   if (busy) {
@@ -2215,7 +2232,6 @@ async function send() {
     setSendBusy(false);
     updateSendState();
 
-    // 先恢复按钮，再驱动「已发送」文本反馈（与按钮动画严格同步）
     if (sentText) {
       const { msgData, msgEl, resTs } = sentText;
       const timeEl = msgEl.querySelector('.msg-time');
@@ -2426,7 +2442,6 @@ async function pollMessages() {
   if (!currentConv || document.hidden || pollInFlight) return;
   if (sending) return;
 
-  // 1. 清理发送失败的消息（已有 toast 提示，等下次轮询自动移除）
   const failedMsgs = messages.filter(m => m._status === 'failed');
   if (failedMsgs.length) {
     for (const fm of failedMsgs) {
@@ -2443,7 +2458,6 @@ async function pollMessages() {
     if (!messages.length) renderMessages();
   }
 
-  // 2. 如果还有正在发送或刚刚发送完的消息，跳过本轮，避免覆盖本地乐观状态
   if (messages.some(m => m._status === 'sending' || m._status === 'sent')) return;
 
   pollInFlight = true;
@@ -2452,7 +2466,6 @@ async function pollMessages() {
       'GET', `/api/conversations/${currentConv.id}/messages`
     )).json();
 
-    // 3. 关键修复：等待响应期间如果发送已经开始/刚完成，不要覆盖本地状态
     if (sending || messages.some(m => m._status === 'sending' || m._status === 'sent')) {
       return;
     }
