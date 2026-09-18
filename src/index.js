@@ -5,7 +5,7 @@ const LOGIN_WINDOW_MS = 60_000;
 const LOGIN_MAX_ATTEMPTS = 5;
 
 const JSON_MAX_BYTES = 1_000_000;
-const MAX_MESSAGES = 300;          // 每个对话最多保留的消息数
+const MAX_MESSAGES = 300;
 const MAX_CONV_NAME = 80;
 const MAX_MSG_NAME = 255;
 
@@ -91,6 +91,49 @@ function parseCookie(header, name) {
 const setCookie = (sid, maxAge) =>
   `sid=${sid}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${maxAge}`;
 
+/* ============================================================
+ * 多租户：密码 → 租户 ID
+ * ============================================================ */
+function sanitizeTenant(id) {
+  return String(id).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32);
+}
+
+/**
+ * 根据提交的密码解析租户。
+ * 优先使用 ACCESS_TOKENS（JSON 映射：{"密码":"租户ID", ...}）。
+ * 未配置时回退到单密码 ACCESS_TOKEN，映射到 'default' 租户。
+ *
+ * 所有比较均为 timing-safe，且总是遍历完所有条目，
+ * 避免通过时间差异推断出匹配的是哪一条。
+ */
+async function resolveTenant(env, password) {
+  if (env.ACCESS_TOKENS) {
+    let map;
+    try { map = JSON.parse(env.ACCESS_TOKENS); }
+    catch { return null; }
+    if (!map || typeof map !== 'object') return null;
+
+    let found = null;
+    for (const [pw, tenant] of Object.entries(map)) {
+      if (typeof pw !== 'string' || typeof tenant !== 'string') continue;
+      if (!tenant) continue;
+      const ok = await timingSafeEqual(password, pw);
+      if (ok && found === null) {
+        found = sanitizeTenant(tenant);
+      }
+    }
+    return found;
+  }
+
+  if (env.ACCESS_TOKEN) {
+    if (await timingSafeEqual(password, env.ACCESS_TOKEN)) return 'default';
+  }
+  return null;
+}
+
+/* ============================================================
+ * 会话
+ * ============================================================ */
 async function getSession(env, request) {
   const sid = parseCookie(request.headers.get('Cookie'), 'sid');
   if (!sid || !/^[a-f0-9]{64}$/.test(sid)) return null;
@@ -98,18 +141,19 @@ async function getSession(env, request) {
   const obj = await env.BUCKET.head(key);
   if (!obj) return null;
   const exp = parseTs(obj.customMetadata?.exp, 0);
-  if (exp <= 0 || Date.now() > exp) {
+  const tenant = obj.customMetadata?.t;
+  if (exp <= 0 || Date.now() > exp || !tenant) {
     await env.BUCKET.delete(key);
     return null;
   }
-  return { sid, key, exp };
+  return { sid, key, exp, tenant };
 }
 
 async function refreshSession(env, sess) {
   const newExp = Date.now() + SESSION_TTL_MS;
   if (newExp - sess.exp < SESSION_TTL_MS * 0.5) return null;
   await env.BUCKET.put(sess.key, '1', {
-    customMetadata: { exp: String(newExp) },
+    customMetadata: { exp: String(newExp), t: sess.tenant },
   });
 }
 
@@ -121,6 +165,9 @@ function clientIp(request) {
   );
 }
 
+/* ============================================================
+ * 登录限流
+ * ============================================================ */
 async function loginRateLimit(env, ip) {
   const key = 'ratelimit/login/' + ip.replace(/[^a-fA-F0-9:.]/g, '_');
   const now = Date.now();
@@ -146,7 +193,9 @@ async function recordAttempt(env, key, data) {
   });
 }
 
-/* ---------- 分页列举：显式带上 customMetadata ---------- */
+/* ============================================================
+ * 分页列举
+ * ============================================================ */
 async function* listAll(bucket, opts = {}) {
   let cursor;
   let pages = 0;
@@ -171,12 +220,26 @@ function isValidConvId(id) {
 function isValidMsgId(id) {
   return typeof id === 'string' && /^\d{10,16}-[a-f0-9]{8}$/.test(id);
 }
+function isValidFileUuid(id) {
+  return typeof id === 'string' && /^[a-f0-9-]{36}$/.test(id);
+}
 
-/* ---------- 对话 ---------- */
-async function listConversations(env) {
+/* ---------- 路径构造函数 ---------- */
+const convMetaKey  = (t, cid) => `${t}/conv/${cid}/meta`;
+const convMsgKey   = (t, cid, mid) => `${t}/conv/${cid}/msg/${mid}`;
+const convMsgPrefix= (t, cid) => `${t}/conv/${cid}/msg/`;
+const convPrefix   = (t) => `${t}/conv/`;
+const fileKey      = (t, uuid) => `${t}/file/${uuid}`;
+
+/* ============================================================
+ * 对话
+ * ============================================================ */
+async function listConversations(env, tenant) {
   const list = [];
   const gets = [];
-  for await (const o of listAll(env.BUCKET, { prefix: 'conv/' })) {
+  const prefix = convPrefix(tenant);
+
+  for await (const o of listAll(env.BUCKET, { prefix })) {
     if (!o.key.endsWith('/meta')) continue;
     gets.push((async () => {
       const obj = await env.BUCKET.get(o.key);
@@ -185,7 +248,6 @@ async function listConversations(env) {
     })());
   }
   await Promise.all(gets);
-  // 置顶优先，然后按更新时间倒序
   list.sort((a, b) => {
     const ap = a.pinned ? 1 : 0;
     const bp = b.pinned ? 1 : 0;
@@ -195,7 +257,7 @@ async function listConversations(env) {
   return json({ conversations: list });
 }
 
-async function createConversation(env, request) {
+async function createConversation(env, request, tenant) {
   let body;
   try { body = await safeJsonBody(request); }
   catch (e) { return e instanceof Response ? e : json({ error: 'bad request' }, 400); }
@@ -206,13 +268,12 @@ async function createConversation(env, request) {
   const id = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   const conv = { id, name, created: now, updated: now, pinned: false };
 
-  await env.BUCKET.put(`conv/${id}/meta`, JSON.stringify(conv));
+  await env.BUCKET.put(convMetaKey(tenant, id), JSON.stringify(conv));
   return json({ conversation: conv });
 }
 
-/* ---------- 对话重命名 / 置顶（新增） ---------- */
-async function updateConversation(env, request, convId) {
-  const key = `conv/${convId}/meta`;
+async function updateConversation(env, request, convId, tenant) {
+  const key = convMetaKey(tenant, convId);
   const obj = await env.BUCKET.get(key);
   if (!obj) return json({ error: 'not found' }, 404);
 
@@ -236,15 +297,14 @@ async function updateConversation(env, request, convId) {
     data.pinned = body.pinned;
     changed = true;
   }
-
   if (!changed) return json({ error: 'nothing to update' }, 400);
 
   await env.BUCKET.put(key, JSON.stringify(data));
   return json({ conversation: data });
 }
 
-async function updateConvUpdated(env, convId, ts) {
-  const key = `conv/${convId}/meta`;
+async function updateConvUpdated(env, tenant, convId, ts) {
+  const key = convMetaKey(tenant, convId);
   const obj = await env.BUCKET.get(key);
   if (!obj) return;
   try {
@@ -254,33 +314,40 @@ async function updateConvUpdated(env, convId, ts) {
   } catch {}
 }
 
-async function deleteConversation(env, convId) {
-  const fileKeys = [];
+async function deleteConversation(env, convId, tenant) {
+  const fileUuids = [];
   const deletes = [];
-  for await (const o of listAll(env.BUCKET, { prefix: `conv/${convId}/` })) {
+  const prefix = `${tenant}/conv/${convId}/`;
+
+  for await (const o of listAll(env.BUCKET, { prefix })) {
     if (o.key.includes('/msg/')) {
       const meta = o.customMetadata || {};
-      if (meta.t === 'file' && meta.k) fileKeys.push(meta.k);
+      if (meta.t === 'file' && meta.k) fileUuids.push(meta.k);
     }
     deletes.push(env.BUCKET.delete(o.key));
   }
   await Promise.all(deletes);
-  if (fileKeys.length) {
-    await Promise.all(fileKeys.map(k => env.BUCKET.delete(k).catch(() => {})));
+
+  if (fileUuids.length) {
+    await Promise.all(
+      fileUuids.map(u => env.BUCKET.delete(fileKey(tenant, u)).catch(() => {}))
+    );
   }
-  return json({ ok: true, deletedFiles: fileKeys.length });
+  return json({ ok: true, deletedFiles: fileUuids.length });
 }
 
-/* ---------- 消息 ---------- */
-async function listMessages(env, convId) {
+/* ============================================================
+ * 消息
+ * ============================================================ */
+async function listMessages(env, convId, tenant) {
   const arr = [];
-  for await (const o of listAll(env.BUCKET, { prefix: `conv/${convId}/msg/` })) {
+  const prefix = convMsgPrefix(tenant, convId);
+  for await (const o of listAll(env.BUCKET, { prefix })) {
     arr.push(o);
   }
   arr.sort((a, b) => a.key.localeCompare(b.key));
 
   const recent = arr.length > MAX_MESSAGES ? arr.slice(-MAX_MESSAGES) : arr;
-  const prefix = `conv/${convId}/msg/`;
 
   const messages = [];
   for (const o of recent) {
@@ -306,8 +373,8 @@ async function listMessages(env, convId) {
   return json({ messages });
 }
 
-async function createMessage(env, request, convId) {
-  const metaObj = await env.BUCKET.head(`conv/${convId}/meta`);
+async function createMessage(env, request, convId, tenant) {
+  const metaObj = await env.BUCKET.head(convMetaKey(tenant, convId));
   if (!metaObj) return json({ error: 'conversation not found' }, 404);
 
   let body;
@@ -316,7 +383,7 @@ async function createMessage(env, request, convId) {
 
   const now = Date.now();
   const msgId = `${now}-${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`;
-  const key = `conv/${convId}/msg/${msgId}`;
+  const key = convMsgKey(tenant, convId, msgId);
 
   if (body.t === 'text') {
     const v = typeof body.v === 'string' ? body.v : '';
@@ -328,11 +395,11 @@ async function createMessage(env, request, convId) {
     });
   } else if (body.t === 'file') {
     const k = typeof body.k === 'string' ? body.k : '';
-    if (!k || k.length > 100 || k.includes('/')) {
-      return json({ error: 'bad file key' }, 400);
-    }
+    if (!isValidFileUuid(k)) return json({ error: 'bad file key' }, 400);
 
-    const fileObj = await env.BUCKET.head(k);
+    // 文件必须属于同一租户
+    const r2Key = fileKey(tenant, k);
+    const fileObj = await env.BUCKET.head(r2Key);
     if (!fileObj) return json({ error: 'file not found' }, 404);
 
     const rawName = typeof body.n === 'string' ? body.n : '';
@@ -342,30 +409,31 @@ async function createMessage(env, request, convId) {
     const mime = safeMime(body.m);
     const exp = parseTs(body.e, 0);
 
-    await env.BUCKET.put(key, '', {
-      customMetadata: {
-        t: 'file',
-        ts: String(now),
-        k,
-        n: name,
-        s: String(size),
-        m: mime,
-        e: exp > 0 ? String(exp) : '',
-      },
-    });
+    const meta = {
+      t: 'file',
+      ts: String(now),
+      k,
+      n: name,
+      s: String(size),
+      m: mime,
+    };
+    if (exp > 0) meta.e = String(exp);
+
+    await env.BUCKET.put(key, '', { customMetadata: meta });
   } else {
     return json({ error: 'bad type' }, 400);
   }
 
-  await updateConvUpdated(env, convId, now).catch(() => {});
-  await trimMessages(env, convId).catch(() => {});
+  await updateConvUpdated(env, tenant, convId, now).catch(() => {});
+  await trimMessages(env, tenant, convId).catch(() => {});
 
   return json({ ok: true, id: msgId, ts: now });
 }
 
-async function trimMessages(env, convId) {
+async function trimMessages(env, tenant, convId) {
   const arr = [];
-  for await (const o of listAll(env.BUCKET, { prefix: `conv/${convId}/msg/` })) {
+  const prefix = convMsgPrefix(tenant, convId);
+  for await (const o of listAll(env.BUCKET, { prefix })) {
     arr.push(o);
   }
   if (arr.length <= MAX_MESSAGES) return;
@@ -375,27 +443,26 @@ async function trimMessages(env, convId) {
   for (const o of toDelete) {
     const meta = o.customMetadata || {};
     if (meta.t === 'file' && meta.k) {
-      await env.BUCKET.delete(meta.k).catch(() => {});
+      await env.BUCKET.delete(fileKey(tenant, meta.k)).catch(() => {});
     }
     await env.BUCKET.delete(o.key).catch(() => {});
   }
 }
 
-async function deleteMessage(env, convId, msgId) {
-  const key = `conv/${convId}/msg/${msgId}`;
+async function deleteMessage(env, convId, msgId, tenant) {
+  const key = convMsgKey(tenant, convId, msgId);
   const obj = await env.BUCKET.head(key);
   if (!obj) return json({ error: 'not found' }, 404);
   const meta = obj.customMetadata || {};
   if (meta.t === 'file' && meta.k) {
-    await env.BUCKET.delete(meta.k).catch(() => {});
+    await env.BUCKET.delete(fileKey(tenant, meta.k)).catch(() => {});
   }
   await env.BUCKET.delete(key);
   return json({ ok: true });
 }
 
-/* ---------- 文件消息重命名 ---------- */
-async function patchMessage(env, request, convId, msgId) {
-  const key = `conv/${convId}/msg/${msgId}`;
+async function patchMessage(env, request, convId, msgId, tenant) {
+  const key = convMsgKey(tenant, convId, msgId);
   const obj = await env.BUCKET.head(key);
   if (!obj) return json({ error: 'not found' }, 404);
   const meta = obj.customMetadata || {};
@@ -414,15 +481,16 @@ async function patchMessage(env, request, convId, msgId) {
   const name = rawName.trim().replace(/[\r\n\t]/g, ' ');
 
   const newMeta = { ...meta, n: name };
-
   await env.BUCKET.put(key, '', { customMetadata: newMeta });
 
-  if (meta.k) {
+  // 同步更新底层文件对象的名字
+  if (meta.k && isValidFileUuid(meta.k)) {
     try {
-      const fobj = await env.BUCKET.get(meta.k);
+      const r2Key = fileKey(tenant, meta.k);
+      const fobj = await env.BUCKET.get(r2Key);
       if (fobj) {
         const fmeta = { ...(fobj.customMetadata || {}), n: name };
-        await env.BUCKET.put(meta.k, fobj.body, {
+        await env.BUCKET.put(r2Key, fobj.body, {
           customMetadata: fmeta,
           httpMetadata: fobj.httpMetadata,
         });
@@ -433,7 +501,9 @@ async function patchMessage(env, request, convId, msgId) {
   return json({ ok: true, n: name });
 }
 
-/* ============================================================ */
+/* ============================================================
+ * 主入口
+ * ============================================================ */
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -467,7 +537,7 @@ export default {
       });
     }
 
-    /* ---------- 登录 / 登出 / 会话 ---------- */
+    /* ---------- 登录 ---------- */
     if (path === '/api/login' && request.method === 'POST') {
       const ip = clientIp(request);
       const rl = await loginRateLimit(env, ip);
@@ -492,7 +562,8 @@ export default {
         return json({ error: 'unauthorized' }, 401);
       }
 
-      if (!(await timingSafeEqual(password, env.ACCESS_TOKEN))) {
+      const tenant = await resolveTenant(env, password);
+      if (!tenant) {
         await recordAttempt(env, rl.key, rl.data);
         return json({ error: 'unauthorized' }, 401);
       }
@@ -504,7 +575,10 @@ export default {
         crypto.randomUUID().replace(/-/g, '');
 
       await env.BUCKET.put('session/' + sid, '1', {
-        customMetadata: { exp: String(Date.now() + SESSION_TTL_MS) },
+        customMetadata: {
+          exp: String(Date.now() + SESSION_TTL_MS),
+          t: tenant,
+        },
       });
 
       return json({ ok: true }, 200, { 'Set-Cookie': setCookie(sid, SESSION_TTL) });
@@ -516,13 +590,16 @@ export default {
       return json({ ok: true }, 200, { 'Set-Cookie': setCookie('', 0) });
     }
 
+    // 退出所有设备：只撤销当前租户的会话，不影响其他用户
     if (path === '/api/logout-all' && request.method === 'POST') {
       const sess = await getSession(env, request);
       if (!sess) return json({ error: 'unauthorized' }, 401);
       let count = 0;
       for await (const o of listAll(env.BUCKET, { prefix: 'session/' })) {
-        await env.BUCKET.delete(o.key);
-        count++;
+        if (o.customMetadata?.t === sess.tenant) {
+          await env.BUCKET.delete(o.key);
+          count++;
+        }
       }
       return json({ ok: true, revoked: count }, 200, {
         'Set-Cookie': setCookie('', 0),
@@ -534,15 +611,16 @@ export default {
       return json({ ok: !!sess });
     }
 
-    /* ---------- 认证 + 滑动续期 ---------- */
+    /* ---------- 认证 ---------- */
     const sess = await getSession(env, request);
     if (!sess) return json({ error: 'unauthorized' }, 401);
+    const tenant = sess.tenant;
     ctx.waitUntil(refreshSession(env, sess).catch(() => {}));
 
     /* ---------- 对话 ---------- */
     if (path === '/api/conversations') {
-      if (request.method === 'GET') return listConversations(env);
-      if (request.method === 'POST') return createConversation(env, request);
+      if (request.method === 'GET') return listConversations(env, tenant);
+      if (request.method === 'POST') return createConversation(env, request, tenant);
       return json({ error: 'method not allowed' }, 405);
     }
 
@@ -550,12 +628,8 @@ export default {
     if (convMatch) {
       const convId = safeDecode(convMatch[1]);
       if (!isValidConvId(convId)) return json({ error: 'bad id' }, 400);
-      if (request.method === 'DELETE') {
-        return deleteConversation(env, convId);
-      }
-      if (request.method === 'PATCH') {
-        return updateConversation(env, request, convId);
-      }
+      if (request.method === 'DELETE') return deleteConversation(env, convId, tenant);
+      if (request.method === 'PATCH')  return updateConversation(env, request, convId, tenant);
       return json({ error: 'method not allowed' }, 405);
     }
 
@@ -564,8 +638,8 @@ export default {
     if (msgsMatch) {
       const convId = safeDecode(msgsMatch[1]);
       if (!isValidConvId(convId)) return json({ error: 'bad id' }, 400);
-      if (request.method === 'GET') return listMessages(env, convId);
-      if (request.method === 'POST') return createMessage(env, request, convId);
+      if (request.method === 'GET')  return listMessages(env, convId, tenant);
+      if (request.method === 'POST') return createMessage(env, request, convId, tenant);
       return json({ error: 'method not allowed' }, 405);
     }
 
@@ -573,16 +647,12 @@ export default {
     const msgMatch = path.match(/^\/api\/conversations\/([^\/]+)\/messages\/([^\/]+)$/);
     if (msgMatch) {
       const convId = safeDecode(msgMatch[1]);
-      const msgId = safeDecode(msgMatch[2]);
+      const msgId  = safeDecode(msgMatch[2]);
       if (!isValidConvId(convId) || !isValidMsgId(msgId)) {
         return json({ error: 'bad id' }, 400);
       }
-      if (request.method === 'DELETE') {
-        return deleteMessage(env, convId, msgId);
-      }
-      if (request.method === 'PATCH') {
-        return patchMessage(env, request, convId, msgId);
-      }
+      if (request.method === 'DELETE') return deleteMessage(env, convId, msgId, tenant);
+      if (request.method === 'PATCH')  return patchMessage(env, request, convId, msgId, tenant);
       return json({ error: 'method not allowed' }, 405);
     }
 
@@ -590,7 +660,9 @@ export default {
     if (path === '/api/files' && request.method === 'POST') {
       if (!request.body) return json({ error: 'no body' }, 400);
 
-      const key = crypto.randomUUID();
+      const uuid = crypto.randomUUID();
+      const r2Key = fileKey(tenant, uuid);
+
       const rawName = request.headers.get('X-File-Name') || '';
       const name = safeDecode(rawName).slice(0, MAX_MSG_NAME).replace(/[\r\n\t]/g, ' ');
       const rawType = request.headers.get('X-File-Type') || '';
@@ -602,29 +674,30 @@ export default {
         meta.e = String(Date.now() + expiresSec * 1000);
       }
 
-      await env.BUCKET.put(key, request.body, {
+      await env.BUCKET.put(r2Key, request.body, {
         customMetadata: meta,
         httpMetadata: { contentType: type },
       });
 
-      return json({ key, name: meta.n, exp: meta.e ? parseTs(meta.e, 0) : 0 });
+      // 返回给前端的是 uuid，不含租户信息
+      return json({ key: uuid, name: meta.n, exp: meta.e ? parseTs(meta.e, 0) : 0 });
     }
 
     /* ---------- 文件下载 ---------- */
     if (path.startsWith('/api/files/') && request.method === 'GET') {
-      const key = safeDecode(path.slice('/api/files/'.length));
-      if (!key || key.length > 100 || key.includes('/')) {
-        return json({ error: 'bad key' }, 400);
-      }
+      const uuid = safeDecode(path.slice('/api/files/'.length));
+      if (!isValidFileUuid(uuid)) return json({ error: 'bad key' }, 400);
 
-      const obj = await env.BUCKET.get(key);
+      // 关键：路径用当前会话的租户拼接
+      const r2Key = fileKey(tenant, uuid);
+      const obj = await env.BUCKET.get(r2Key);
       if (!obj) return json({ error: 'not found' }, 404);
       if (isExpired(obj.customMetadata)) {
-        await env.BUCKET.delete(key);
+        await env.BUCKET.delete(r2Key);
         return json({ error: 'expired' }, 410);
       }
 
-      const name = obj.customMetadata?.n || key;
+      const name = obj.customMetadata?.n || uuid;
       const type = safeMime(obj.customMetadata?.t);
 
       const wantInline = url.searchParams.get('inline') === '1';
@@ -653,17 +726,18 @@ export default {
   /* ---------- 定时清理 ---------- */
   async scheduled(event, env, ctx) {
     const now = Date.now();
-
     const dead = [];
-    for await (const o of listAll(env.BUCKET, {})) {
-      if (o.key.startsWith('conv/')) continue;
 
+    for await (const o of listAll(env.BUCKET, {})) {
+      // 会话和限流：按 exp 清理
       if (o.key.startsWith('session/') || o.key.startsWith('ratelimit/')) {
         const exp = parseTs(o.customMetadata?.exp, 0);
         if (exp <= 0 || now > exp) dead.push(env.BUCKET.delete(o.key));
         continue;
       }
 
+      // 对话消息和 meta 没有 e 字段，isExpired 会自动返回 false
+      // 只有带 e 的文件对象会被清理
       if (isExpired(o.customMetadata)) {
         dead.push(env.BUCKET.delete(o.key));
       }
