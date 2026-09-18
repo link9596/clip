@@ -1557,7 +1557,7 @@ function openConvMenu(conv, anchor) {
 
   menu.querySelector('[data-act="delete"]').onclick = async () => {
     closeConvMenu();
-    if (!await confirmDialog(`删除对话「${conv.name}」？\n该对话下所有文本和文件都会从服务器彻底删除。`)) return;
+    if (!await confirmDialog(`删除对话「${conv.name}」？\n该对话下所有内容都会彻底删除。`)) return;
 
     const item = convList.querySelector(`.conv-item[data-id="${conv.id}"]`);
     if (item) item.classList.add('deleting');
