@@ -51,13 +51,27 @@ svg{display:block}
   pointer-events:none;visibility:hidden;
   transition:opacity .5s var(--ease),transform .62s var(--ease),visibility 0s linear .62s;
 }
-.boot-stage{position:relative;width:100%;max-width:340px;
-  will-change:transform;transition:transform .88s var(--ease-soft);}
-/* 登录界面：整个头部上移更多，为下方表单留出空间 */
-.boot.login .boot-stage{transform:translateY(-108px);}
-.boot-head{display:flex;flex-direction:column;align-items:center;
-  animation:bootIn .7s var(--ease-soft) both;}
-@keyframes bootIn{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+.boot-stage{position:relative;width:100%;max-width:340px;}
+
+/* 标题区外层：用 transform 做位移（GPU 加速），与内层 bootIn 动画分层互不干扰 */
+.boot-head-wrap{
+  transform: translateZ(0) translateY(0);
+  transition: transform .88s var(--ease-soft);
+  will-change: transform;
+}
+.boot.login .boot-head-wrap{
+  transform: translateZ(0) translateY(-150px);
+}
+
+/* 内层：只负责入场动画 */
+.boot-head{
+  display:flex;flex-direction:column;align-items:center;
+  animation:bootIn .7s var(--ease-soft) both;
+}
+@keyframes bootIn{
+  from{opacity:0;transform:translateY(14px) scale(.98)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
 .boot-logo{width:66px;height:66px;border-radius:21px;display:grid;place-items:center;
   background:linear-gradient(140deg,rgba(99,102,241,.24),rgba(99,102,241,.05));
   border:1px solid rgba(99,102,241,.28);color:var(--accent-hi);
@@ -75,13 +89,34 @@ svg{display:block}
 .boot-dots i:nth-child(2){animation-delay:.16s}
 .boot-dots i:nth-child(3){animation-delay:.32s}
 @keyframes dotPulse{0%,70%,100%{opacity:.22;transform:scale(.68)}35%{opacity:1;transform:scale(1)}}
+
+/* 登录操作区：定位在 stage 下方，随标题上移留出更大间距 */
 .boot-form{position:absolute;left:0;right:0;top:calc(100% + 8px);display:flex;flex-direction:column;}
-.boot-field,.boot-btn{opacity:0;transform:translateY(22px);pointer-events:none;
-  will-change:transform,opacity;}
-.boot-field{transition:opacity .5s var(--ease),transform .72s var(--ease-soft);}
-.boot-btn{margin-top:16px;transition:opacity .5s var(--ease),transform .72s var(--ease-soft);}
-.boot.login .boot-field{opacity:1;transform:translateY(0);pointer-events:auto;transition-delay:.10s;}
-.boot.login .boot-btn{opacity:1;transform:translateY(0);pointer-events:auto;transition-delay:.21s;}
+
+/* 密码框与解锁按钮：保留淡入上移动画 */
+.boot-field,.boot-btn{
+  opacity:0;
+  transform:translateY(22px);
+  pointer-events:none;
+  will-change:transform,opacity;
+}
+.boot-field{
+  transition:opacity .5s var(--ease),transform .72s var(--ease-soft);
+}
+.boot-btn{
+  margin-top:16px;
+  transition:opacity .5s var(--ease),transform .72s var(--ease-soft);
+}
+.boot.login .boot-field{
+  opacity:1;transform:translateY(0);
+  pointer-events:auto;
+  transition-delay:.10s;
+}
+.boot.login .boot-btn{
+  opacity:1;transform:translateY(0);
+  pointer-events:auto;
+  transition-delay:.21s;
+}
 .boot-field input{width:100%;padding:15px 17px;border-radius:15px;
   background:rgba(255,255,255,.045);border:1px solid var(--line);
   color:var(--fg);font-size:16px;outline:none;
@@ -114,12 +149,24 @@ svg{display:block}
   background:var(--panel);border-right:1px solid var(--line);
   padding-top:env(safe-area-inset-top);
   padding-bottom:env(safe-area-inset-bottom);
+  transform:translateZ(0);
+  will-change:transform;
   transition:transform .38s var(--ease);
 }
 .sb-head{display:flex;align-items:center;justify-content:space-between;
   padding:18px 16px 12px;gap:10px;}
-.brand{font-size:12px;font-weight:600;letter-spacing:.14em;
-  text-transform:uppercase;color:var(--dim2)}
+
+.brand{
+  display:flex;align-items:center;gap:7px;
+  font-size:12px;font-weight:600;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--dim2);
+}
+.brand svg{
+  width:14px;height:14px;flex-shrink:0;
+  color:var(--accent-hi);
+  filter:drop-shadow(0 0 8px rgba(99,102,241,.45));
+}
+
 .mini{width:32px;height:32px;border-radius:11px;display:grid;place-items:center;
   background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--dim);
   transition:background .2s,color .2s,transform .16s var(--ease);}
@@ -265,7 +312,6 @@ svg{display:block}
   max-width:100%;animation:msgIn .34s var(--ease);}
 @keyframes msgIn{from{opacity:0;transform:translateY(8px) scale(.985)}}
 
-/* 消息删除中：半透明 + 禁用交互 */
 .msg.deleting{
   opacity:.35;
   pointer-events:none;
@@ -327,7 +373,6 @@ svg{display:block}
 .msg:hover .msg-acts{opacity:1}
 @media (hover:none){.msg-acts{opacity:1}}
 
-/* 文本操作：纯图标，无背景无边框 */
 .msg-act{
   width:24px;height:24px;padding:0;
   display:grid;place-items:center;
@@ -359,8 +404,6 @@ svg{display:block}
   animation:msgIn .5s var(--ease) both;
 }
 .empty-state .big{font-size:15px;color:var(--dim);margin-bottom:6px}
-
-/* 空状态顶部 logo：无边框无背景，仅主题色 */
 .empty-state .empty-logo{
   width:56px;height:56px;
   margin:0 auto 18px;
@@ -373,7 +416,6 @@ svg{display:block}
   width:100%;height:100%;
   display:block;
 }
-
 .empty-state .spin{
   width:22px;height:22px;
   border:2.5px solid rgba(255,255,255,.12);
@@ -657,12 +699,12 @@ svg{display:block}
 
   .sidebar{
     position:fixed;z-index:80;top:0;left:0;bottom:0;width:270px;
-    transform:translateX(-101%);
+    transform:translateZ(0) translateX(-101%);
     box-shadow:none;
     transition:transform .38s var(--ease), box-shadow .38s var(--ease);
   }
   .sidebar.open{
-    transform:none;
+    transform:translateZ(0) translateX(0);
     box-shadow:0 0 60px rgba(0,0,0,.6);
   }
   .sb-scrim{
@@ -684,13 +726,15 @@ svg{display:block}
 
 <div class="boot" id="boot">
   <div class="boot-stage" id="bootStage">
-    <div class="boot-head">
-      <div class="boot-logo">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="1em" height="1em"><path fill="currentColor" d="M26.07 3.996a3 3 0 0 0-.933.223h-.004c-.285.113-1.64.683-3.7 1.547l-7.382 3.109c-5.297 2.23-10.504 4.426-10.504 4.426l.062-.024s-.359.118-.734.375a2 2 0 0 0-.586.567c-.184.27-.332.683-.277 1.11c.09.722.558 1.155.894 1.394c.34.242.664.355.664.355h.008l4.883 1.645c.219.703 1.488 4.875 1.793 5.836c.18.574.355.933.574 1.207q.157.21.379.351a1 1 0 0 0 .246.106l-.05-.012c.015.004.027.016.038.02c.04.011.067.015.118.023c.773.234 1.394-.246 1.394-.246l.035-.028l2.883-2.625l4.832 3.707l.11.047c1.007.442 2.027.196 2.566-.238c.543-.437.754-.996.754-.996l.035-.09l3.734-19.129c.106-.472.133-.914.016-1.343a1.8 1.8 0 0 0-.781-1.047a1.87 1.87 0 0 0-1.067-.27m-.101 2.05c-.004.063.008.056-.02.177v.011l-3.699 18.93c-.016.027-.043.086-.117.145c-.078.062-.14.101-.465-.028l-5.91-4.531l-3.57 3.254l.75-4.79l9.656-9c.398-.37.265-.448.265-.448c.028-.454-.601-.133-.601-.133l-12.176 7.543l-.004-.02l-5.836-1.965v-.004l-.015-.003l.03-.012l.032-.016l.031-.011s5.211-2.196 10.508-4.426c2.652-1.117 5.324-2.242 7.379-3.11a807 807 0 0 1 3.66-1.53c.082-.032.043-.032.102-.032z"/></svg>
+    <div class="boot-head-wrap">
+      <div class="boot-head">
+        <div class="boot-logo">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="1em" height="1em"><path fill="currentColor" d="M26.07 3.996a3 3 0 0 0-.933.223h-.004c-.285.113-1.64.683-3.7 1.547l-7.382 3.109c-5.297 2.23-10.504 4.426-10.504 4.426l.062-.024s-.359.118-.734.375a2 2 0 0 0-.586.567c-.184.27-.332.683-.277 1.11c.09.722.558 1.155.894 1.394c.34.242.664.355.664.355h.008l4.883 1.645c.219.703 1.488 4.875 1.793 5.836c.18.574.355.933.574 1.207q.157.21.379.351a1 1 0 0 0 .246.106l-.05-.012c.015.004.027.016.038.02c.04.011.067.015.118.023c.773.234 1.394-.246 1.394-.246l.035-.028l2.883-2.625l4.832 3.707l.11.047c1.007.442 2.027.196 2.566-.238c.543-.437.754-.996.754-.996l.035-.09l3.734-19.129c.106-.472.133-.914.016-1.343a1.8 1.8 0 0 0-.781-1.047a1.87 1.87 0 0 0-1.067-.27m-.101 2.05c-.004.063.008.056-.02.177v.011l-3.699 18.93c-.016.027-.043.086-.117.145c-.078.062-.14.101-.465-.028l-5.91-4.531l-3.57 3.254l.75-4.79l9.656-9c.398-.37.265-.448.265-.448c.028-.454-.601-.133-.601-.133l-12.176 7.543l-.004-.02l-5.836-1.965v-.004l-.015-.003l.03-.012l.032-.016l.031-.011s5.211-2.196 10.508-4.426c2.652-1.117 5.324-2.242 7.379-3.11a807 807 0 0 1 3.66-1.53c.082-.032.043-.032.102-.032z"/></svg>
+        </div>
+        <div class="boot-name">FlyPaste</div>
+        <div class="boot-sub">跨设备同步剪切板和共享文件</div>
+        <div class="boot-dots"><i></i><i></i><i></i></div>
       </div>
-      <div class="boot-name">FlyPaste</div>
-      <div class="boot-sub">跨设备同步剪切板和共享文件</div>
-      <div class="boot-dots"><i></i><i></i><i></i></div>
     </div>
 
     <div class="boot-form" id="bootForm">
@@ -707,7 +751,10 @@ svg{display:block}
 
   <aside class="sidebar" id="sidebar">
     <div class="sb-head">
-      <div class="brand">FlyPaste</div>
+      <div class="brand">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path fill="currentColor" d="M26.07 3.996a3 3 0 0 0-.933.223h-.004c-.285.113-1.64.683-3.7 1.547l-7.382 3.109c-5.297 2.23-10.504 4.426-10.504 4.426l.062-.024s-.359.118-.734.375a2 2 0 0 0-.586.567c-.184.27-.332.683-.277 1.11c.09.722.558 1.155.894 1.394c.34.242.664.355.664.355h.008l4.883 1.645c.219.703 1.488 4.875 1.793 5.836c.18.574.355.933.574 1.207q.157.21.379.351a1 1 0 0 0 .246.106l-.05-.012c.015.004.027.016.038.02c.04.011.067.015.118.023c.773.234 1.394-.246 1.394-.246l.035-.028l2.883-2.625l4.832 3.707l.11.047c1.007.442 2.027.196 2.566-.238c.543-.437.754-.996.754-.996l.035-.09l3.734-19.129c.106-.472.133-.914.016-1.343a1.8 1.8 0 0 0-.781-1.047a1.87 1.87 0 0 0-1.067-.27m-.101 2.05c-.004.063.008.056-.02.177v.011l-3.699 18.93c-.016.027-.043.086-.117.145c-.078.062-.14.101-.465-.028l-5.91-4.531l-3.57 3.254l.75-4.79l9.656-9c.398-.37.265-.448.265-.448c.028-.454-.601-.133-.601-.133l-12.176 7.543l-.004-.02l-5.836-1.965v-.004l-.015-.003l.03-.012l.032-.016l.031-.011s5.211-2.196 10.508-4.426c2.652-1.117 5.324-2.242 7.379-3.11a807 807 0 0 1 3.66-1.53c.082-.032.043-.032.102-.032z"/></svg>
+        <span>FlyPaste</span>
+      </div>
       <button class="mini" id="newConvBtn" title="新建对话">
         <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
       </button>
@@ -861,7 +908,6 @@ let convMenuAnchor = null;
 
 const decryptCache = new Map();
 
-/* 应用 logo（主题色描边版本，用于空状态） */
 const APP_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path fill="currentColor" d="M26.07 3.996a3 3 0 0 0-.933.223h-.004c-.285.113-1.64.683-3.7 1.547l-7.382 3.109c-5.297 2.23-10.504 4.426-10.504 4.426l.062-.024s-.359.118-.734.375a2 2 0 0 0-.586.567c-.184.27-.332.683-.277 1.11c.09.722.558 1.155.894 1.394c.34.242.664.355.664.355h.008l4.883 1.645c.219.703 1.488 4.875 1.793 5.836c.18.574.355.933.574 1.207q.157.21.379.351a1 1 0 0 0 .246.106l-.05-.012c.015.004.027.016.038.02c.04.011.067.015.118.023c.773.234 1.394-.246 1.394-.246l.035-.028l2.883-2.625l4.832 3.707l.11.047c1.007.442 2.027.196 2.566-.238c.543-.437.754-.996.754-.996l.035-.09l3.734-19.129c.106-.472.133-.914.016-1.343a1.8 1.8 0 0 0-.781-1.047a1.87 1.87 0 0 0-1.067-.27m-.101 2.05c-.004.063.008.056-.02.177v.011l-3.699 18.93c-.016.027-.043.086-.117.145c-.078.062-.14.101-.465-.028l-5.91-4.531l-3.57 3.254l.75-4.79l9.656-9c.398-.37.265-.448.265-.448c.028-.454-.601-.133-.601-.133l-12.176 7.543l-.004-.02l-5.836-1.965v-.004l-.015-.003l.03-.012l.032-.016l.031-.011s5.211-2.196 10.508-4.426c2.652-1.117 5.324-2.242 7.379-3.11a807 807 0 0 1 3.66-1.53c.082-.032.043-.032.102-.032z"/></svg>`;
 
 /* ============================================================
@@ -1144,7 +1190,6 @@ function renderConvList() {
     moreBtn.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>';
     moreBtn.onclick = (e) => {
       e.stopPropagation();
-      // 同一个按钮再次点击 → 关闭菜单；否则打开
       if (convMenuEl && convMenuAnchor === moreBtn) {
         closeConvMenu();
       } else {
@@ -1158,7 +1203,6 @@ function renderConvList() {
   }
 }
 
-/* ---- 三个点菜单 ---- */
 function closeConvMenu() {
   if (convMenuEl) {
     convMenuEl.remove();
@@ -1218,7 +1262,6 @@ function openConvMenu(conv, anchor) {
   menu.style.left = left + 'px';
   menu.style.zIndex = 300;
 
-  /* 置顶：乐观更新 */
   menu.querySelector('[data-act="pin"]').onclick = async () => {
     closeConvMenu();
     const oldPinned = !!conv.pinned;
@@ -1243,7 +1286,6 @@ function openConvMenu(conv, anchor) {
     startRenameConv(conv);
   };
 
-  /* 删除对话：加 deleting 状态 */
   menu.querySelector('[data-act="delete"]').onclick = async () => {
     closeConvMenu();
     if (!await confirmDialog(`删除对话「${conv.name}」？\n该对话下所有文本和文件都会从服务器彻底删除。`)) return;
@@ -1279,7 +1321,6 @@ function openConvMenu(conv, anchor) {
   }, 0);
 }
 
-/* ---- 重命名对话：乐观更新 ---- */
 function startRenameConv(conv) {
   const item = convList.querySelector(`.conv-item[data-id="${conv.id}"]`);
   if (!item) return;
@@ -1305,7 +1346,6 @@ function startRenameConv(conv) {
       return;
     }
 
-    // 先更新 UI（乐观）
     conv.name = v;
     nameEl.textContent = v;
     input.replaceWith(nameEl);
@@ -1320,7 +1360,6 @@ function startRenameConv(conv) {
       });
       nameEl.style.opacity = '';
     } catch {
-      // 回滚
       conv.name = oldName;
       nameEl.textContent = oldName;
       if (currentConv?.id === conv.id) $('#chatTitle').textContent = oldName;
@@ -1335,7 +1374,6 @@ function startRenameConv(conv) {
   input.addEventListener('blur', () => finish(true));
 }
 
-/* ---- 新建对话：立即收起侧边栏 + 展示加载 ---- */
 async function createConversation(name) {
   closeSidebarMobile();
 
@@ -1593,7 +1631,6 @@ function downloadFile(m) {
   a.remove();
 }
 
-/* ---- 文件重命名：乐观更新 ---- */
 async function startRename(card, nameEl, m) {
   if (card.querySelector('.rename-input')) return;
   const oldName = m.n;
@@ -1614,7 +1651,6 @@ async function startRename(card, nameEl, m) {
       return;
     }
 
-    // 乐观更新
     m.n = newName;
     nameEl.textContent = newName;
     input.replaceWith(nameEl);
@@ -1640,11 +1676,9 @@ async function startRename(card, nameEl, m) {
   input.addEventListener('blur', () => finish(true));
 }
 
-/* ---- 删除消息：deleting 状态 + FLIP 位移动画 ---- */
 async function deleteMessage(m, wrap) {
   if (!await confirmDialog(m.t === 'file' ? '删除这条文件消息？文件也会被删除。' : '删除这条消息？')) return;
 
-  // 立即显示删除中状态
   wrap.classList.add('deleting');
 
   try {
@@ -1658,15 +1692,12 @@ async function deleteMessage(m, wrap) {
   decryptCache.delete(m.id);
   messages = messages.filter(x => x.id !== m.id);
 
-  // FLIP：记录其他消息的旧位置
   const others = [...msgsEl.querySelectorAll('.msg')].filter(el => el !== wrap);
   const prevPositions = new Map();
   others.forEach(el => prevPositions.set(el.dataset.id, el.getBoundingClientRect().top));
 
-  // 移除被删除的消息
   wrap.remove();
 
-  // 播放 FLIP 位移动画
   others.forEach(el => {
     const prev = prevPositions.get(el.dataset.id);
     if (prev == null) return;
@@ -1677,7 +1708,7 @@ async function deleteMessage(m, wrap) {
     el.style.animation = 'none';
     el.style.transition = 'none';
     el.style.transform = `translateY(${delta}px)`;
-    void el.offsetHeight; // 强制重排
+    void el.offsetHeight;
     el.style.transition = 'transform .4s cubic-bezier(.22,1,.36,1)';
     el.style.transform = '';
     setTimeout(() => {
@@ -1841,7 +1872,7 @@ async function send() {
 }
 
 /* ============================================================
- * 上传：全部卡片先显示，再串行上传
+ * 上传
  * ============================================================ */
 function createUploadCard(file) {
   const wrap = document.createElement('div');
@@ -1906,7 +1937,6 @@ async function uploadAndSend(files) {
   const convId = currentConv.id;
   const expSec = parseInt($('#expiryDD').dataset.value, 10) || 0;
 
-  // 1. 所有文件一次性创建卡片，显示"等待上传…"
   const items = files.map(file => {
     const item = createUploadCard(file);
     item.file = file;
@@ -1916,7 +1946,6 @@ async function uploadAndSend(files) {
   });
   scrollToBottom();
 
-  // 2. 串行上传（保持消息顺序），每个文件独立更新进度
   for (const item of items) {
     await uploadOne(item, convId, expSec);
   }
@@ -1947,7 +1976,6 @@ async function uploadOne(item, convId, expSec) {
       })
     })).json();
 
-    // 用正式消息卡片替换上传卡片
     const msgData = {
       id: result.id,
       t: 'file',
@@ -2024,7 +2052,6 @@ document.addEventListener('visibilitychange', () => {
 
 async function pollMessages() {
   if (!currentConv || document.hidden || pollInFlight) return;
-  // 上传中不打断
   if (sending) return;
   pollInFlight = true;
   try {
