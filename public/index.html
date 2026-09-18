@@ -14,7 +14,8 @@
   --line:rgba(255,255,255,.08);--line-hi:rgba(255,255,255,.16);
   --fg:#f4f4f6;--dim:#8b8b94;--dim2:#5c5c66;
   --accent:#6366f1;--accent-hi:#a5b4fc;--accent-soft:rgba(99,102,241,.14);
-  --danger:#f87171;--ok:#34d399;
+  --danger:#f87171;--danger-soft:#fca5a5;
+  --ok:#34d399;--ok-deep:#10b981;
   --ease:cubic-bezier(.22,1,.36,1);
   --ease-out:cubic-bezier(.16,1,.3,1);
   --ease-soft:cubic-bezier(.16,1,.3,1);
@@ -53,7 +54,6 @@ svg{display:block}
 }
 .boot-stage{position:relative;width:100%;max-width:340px;}
 
-/* 标题区：外层用 transform 位移（GPU 合成） */
 .boot-head-wrap{
   transform: translateZ(0) translateY(0);
   transition: transform .88s var(--ease-soft);
@@ -89,7 +89,6 @@ svg{display:block}
 .boot-dots i:nth-child(3){animation-delay:.32s}
 @keyframes dotPulse{0%,70%,100%{opacity:.22;transform:scale(.68)}35%{opacity:1;transform:scale(1)}}
 
-/* 登录操作区：密码框 + 解锁按钮，保留淡入上移动画，幅度加大到 40px */
 .boot-form{position:absolute;left:0;right:0;top:calc(100% + 8px);display:flex;flex-direction:column;}
 .boot-field,.boot-btn{
   opacity:0;
@@ -325,6 +324,10 @@ svg{display:block}
   transition:background .2s,border-color .2s;
 }
 .msg.text .bubble:hover{background:rgba(255,255,255,.075);border-color:var(--line-hi)}
+.msg.text.failed .bubble{
+  border-color:rgba(248,113,113,.28);
+  background:rgba(248,113,113,.04);
+}
 
 .msg.file{width:100%;max-width:min(680px,100%);}
 
@@ -371,17 +374,17 @@ svg{display:block}
   will-change:opacity;
 }
 
-/* ===== 发送中：旧版 iPhone 滑动解锁般的浮光掠过文字 ===== */
+/* ===== 发送中：浮光掠过 ===== */
 .msg-time.status-sending{
   color:transparent;
   -webkit-text-fill-color:transparent;
   background-image:linear-gradient(
     90deg,
-    rgba(139,139,148,.38) 0%,
-    rgba(139,139,148,.38) 32%,
-    rgba(244,244,246,1) 50%,
-    rgba(139,139,148,.38) 68%,
-    rgba(139,139,148,.38) 100%
+    #8b8b94 0%,
+    #8b8b94 34%,
+    #ffffff 50%,
+    #8b8b94 66%,
+    #8b8b94 100%
   );
   background-size:260% 100%;
   background-position:100% 0;
@@ -395,9 +398,16 @@ svg{display:block}
   100%{background-position:-160% 0}
 }
 
-/* ===== 已发送：绿色打勾 ===== */
+/* ===== 已发送：深绿色打勾 ===== */
 .msg-time.status-sent{
-  color:var(--ok);
+  color:var(--ok-deep);
+  font-weight:600;
+  letter-spacing:.02em;
+}
+
+/* ===== 发送失败：红色 ===== */
+.msg-time.status-failed{
+  color:var(--danger);
   font-weight:600;
   letter-spacing:.02em;
 }
@@ -456,6 +466,26 @@ svg{display:block}
   border-radius:50%;
   animation:sp .75s linear infinite;
   margin:0 auto 14px;
+}
+
+/* ===== 消息数量达到上限的提示 ===== */
+.limit-notice{
+  flex-shrink:0;
+  text-align:center;
+  font-size:12px;
+  color:var(--dim2);
+  padding:18px 16px 6px;
+  line-height:1.6;
+  user-select:none;
+  animation:msgIn .4s var(--ease) both;
+}
+.limit-notice::before{
+  content:'';
+  display:block;
+  width:24px;
+  height:1px;
+  background:var(--line);
+  margin:0 auto 10px;
 }
 
 .file-card.uploading{position:relative;overflow:hidden}
@@ -617,20 +647,28 @@ svg{display:block}
 .icon-btn.send:disabled{
   opacity:.3;cursor:default;filter:none;transform:none;
 }
+
 .icon-btn.send.busy,
-.icon-btn.send.busy:disabled{
+.icon-btn.send.busy:disabled,
+.icon-btn.send.busy:active,
+.icon-btn.send.busy:hover{
   opacity:1;
   background:rgba(99,102,241,.45);
   cursor:default;
-  transform:none;
   filter:none;
+  transform:none !important;
+  transition:background .2s,opacity .2s;
 }
 
 .btn-spin{
-  width:13px;height:13px;
-  border:1.8px solid rgba(255,255,255,.3);
+  width:14px;
+  height:14px;
+  border:2px solid rgba(255,255,255,.32);
   border-top-color:#fff;
   border-radius:50%;
+  box-sizing:border-box;
+  transform-origin:50% 50%;
+  will-change:transform;
   animation:sp .7s linear infinite;
 }
 
@@ -725,6 +763,54 @@ svg{display:block}
 .btn.ghost{background:rgba(255,255,255,.055);color:var(--fg);
   font-weight:500;border:1px solid var(--line);}
 .btn.ghost:hover{background:rgba(255,255,255,.1)}
+
+/* ---------- Toast 提示 ---------- */
+.toast-container{
+  position:fixed;
+  left:50%;
+  bottom:calc(110px + env(safe-area-inset-bottom));
+  transform:translateX(-50%);
+  z-index:400;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:8px;
+  pointer-events:none;
+  max-width:calc(100vw - 40px);
+}
+.toast{
+  padding:10px 18px;
+  background:rgba(30,30,38,.96);
+  backdrop-filter:blur(16px) saturate(180%);
+  -webkit-backdrop-filter:blur(16px) saturate(180%);
+  border:1px solid var(--line-hi);
+  border-radius:12px;
+  color:var(--fg);
+  font-size:13.5px;
+  line-height:1.4;
+  box-shadow:0 14px 40px rgba(0,0,0,.55),0 0 0 1px rgba(0,0,0,.2);
+  animation:toastIn .32s var(--ease) both;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  max-width:100%;
+}
+.toast.error{
+  border-color:rgba(248,113,113,.4);
+  color:var(--danger-soft);
+  background:rgba(38,20,24,.96);
+  box-shadow:0 14px 40px rgba(0,0,0,.55),0 0 0 1px rgba(248,113,113,.15);
+}
+@keyframes toastIn{
+  from{opacity:0;transform:translateY(12px) scale(.94)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+.toast.out{
+  animation:toastOut .32s var(--ease) forwards;
+}
+@keyframes toastOut{
+  to{opacity:0;transform:translateY(-8px) scale(.94)}
+}
 
 /* ---------- 响应式 ---------- */
 @media (max-width:760px){
@@ -864,10 +950,17 @@ svg{display:block}
   </div>
 </div>
 
+<div class="toast-container" id="toastContainer"></div>
+
 <script>
 (function(){
 'use strict';
 const $ = s => document.querySelector(s);
+
+/* ============================================================
+ * 常量
+ * ============================================================ */
+const MAX_MESSAGES = 300;  // 与服务端 MAX_MESSAGES 保持一致
 
 /* ============================================================
  * 加密
@@ -942,6 +1035,24 @@ let convMenuAnchor = null;
 const decryptCache = new Map();
 
 const APP_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path fill="currentColor" d="M26.07 3.996a3 3 0 0 0-.933.223h-.004c-.285.113-1.64.683-3.7 1.547l-7.382 3.109c-5.297 2.23-10.504 4.426-10.504 4.426l.062-.024s-.359.118-.734.375a2 2 0 0 0-.586.567c-.184.27-.332.683-.277 1.11c.09.722.558 1.155.894 1.394c.34.242.664.355.664.355h.008l4.883 1.645c.219.703 1.488 4.875 1.793 5.836c.18.574.355.933.574 1.207q.157.21.379.351a1 1 0 0 0 .246.106l-.05-.012c.015.004.027.016.038.02c.04.011.067.015.118.023c.773.234 1.394-.246 1.394-.246l.035-.028l2.883-2.625l4.832 3.707l.11.047c1.007.442 2.027.196 2.566-.238c.543-.437.754-.996.754-.996l.035-.09l3.734-19.129c.106-.472.133-.914.016-1.343a1.8 1.8 0 0 0-.781-1.047a1.87 1.87 0 0 0-1.067-.27m-.101 2.05c-.004.063.008.056-.02.177v.011l-3.699 18.93c-.016.027-.043.086-.117.145c-.078.062-.14.101-.465-.028l-5.91-4.531l-3.57 3.254l.75-4.79l9.656-9c.398-.37.265-.448.265-.448c.028-.454-.601-.133-.601-.133l-12.176 7.543l-.004-.02l-5.836-1.965v-.004l-.015-.003l.03-.012l.032-.016l.031-.011s5.211-2.196 10.508-4.426c2.652-1.117 5.324-2.242 7.379-3.11a807 807 0 0 1 3.66-1.53c.082-.032.043-.032.102-.032z"/></svg>`;
+
+/* ============================================================
+ * Toast
+ * ============================================================ */
+const toastContainer = $('#toastContainer');
+
+function showToast(text, type) {
+  if (!toastContainer) return;
+  const el = document.createElement('div');
+  el.className = 'toast' + (type === 'error' ? ' error' : '');
+  el.textContent = text;
+  toastContainer.appendChild(el);
+
+  setTimeout(() => {
+    el.classList.add('out');
+    setTimeout(() => el.remove(), 340);
+  }, 2600);
+}
 
 /* ============================================================
  * API
@@ -1324,7 +1435,7 @@ function openConvMenu(conv, anchor) {
       conv.pinned = oldPinned;
       sortConversations();
       renderConvList();
-      alert('操作失败');
+      showToast('操作失败', 'error');
     }
   };
 
@@ -1357,7 +1468,7 @@ function openConvMenu(conv, anchor) {
       }
     } catch {
       if (item) item.classList.remove('deleting');
-      alert('删除失败');
+      showToast('删除失败', 'error');
     }
   };
 
@@ -1411,7 +1522,7 @@ function startRenameConv(conv) {
       nameEl.textContent = oldName;
       if (currentConv?.id === conv.id) $('#chatTitle').textContent = oldName;
       nameEl.style.opacity = '';
-      alert('重命名失败');
+      showToast('重命名失败', 'error');
     }
   };
   input.addEventListener('keydown', e => {
@@ -1517,11 +1628,20 @@ function renderMessages() {
     }
     msgsEl.appendChild(renderMessage(m));
   }
+
+  // 消息数达到上限时，底部提示
+  if (messages.length >= MAX_MESSAGES) {
+    const notice = document.createElement('div');
+    notice.className = 'limit-notice';
+    notice.textContent = '消息已到达数量限制，请尝试清理或新建对话';
+    msgsEl.appendChild(notice);
+  }
 }
 
 function renderMessage(m) {
   const wrap = document.createElement('div');
   wrap.className = 'msg ' + (m.t === 'file' ? 'file' : 'text');
+  if (m._status === 'failed') wrap.classList.add('failed');
   wrap.dataset.id = m.id;
 
   if (m.t === 'text') {
@@ -1531,9 +1651,21 @@ function renderMessage(m) {
 
     const foot = document.createElement('div');
     foot.className = 'msg-foot';
+
     const time = document.createElement('span');
     time.className = 'msg-time';
-    time.textContent = fmtClock(m.ts);
+    if (m._status === 'sending') {
+      time.classList.add('status-sending');
+      time.textContent = '发送中';
+    } else if (m._status === 'sent') {
+      time.classList.add('status-sent');
+      time.textContent = '已发送 ✓';
+    } else if (m._status === 'failed') {
+      time.classList.add('status-failed');
+      time.textContent = '发送失败';
+    } else {
+      time.textContent = fmtClock(m.ts);
+    }
 
     const acts = document.createElement('div');
     acts.className = 'msg-acts';
@@ -1708,7 +1840,7 @@ async function startRename(card, nameEl, m) {
       m.n = oldName;
       nameEl.textContent = oldName;
       nameEl.style.opacity = '';
-      alert('重命名失败');
+      showToast('重命名失败', 'error');
     }
   };
   input.addEventListener('keydown', e => {
@@ -1721,13 +1853,25 @@ async function startRename(card, nameEl, m) {
 async function deleteMessage(m, wrap) {
   if (!await confirmDialog(m.t === 'file' ? '删除这条文件消息？文件也会被删除。' : '删除这条消息？')) return;
 
+  // 本地消息（乐观发送的失败/未确认消息）：跳过 API
+  if (m.id.startsWith('tmp-') || m._status === 'failed') {
+    decryptCache.delete(m.id);
+    messages = messages.filter(x => x.id !== m.id);
+    wrap.classList.add('deleting');
+    setTimeout(() => {
+      wrap.remove();
+      if (!msgsEl.querySelector('.msg')) renderMessages();
+    }, 260);
+    return;
+  }
+
   wrap.classList.add('deleting');
 
   try {
     await api('DELETE', `/api/conversations/${currentConv.id}/messages/${m.id}`);
   } catch {
     wrap.classList.remove('deleting');
-    alert('删除失败');
+    showToast('删除失败', 'error');
     return;
   }
 
@@ -1763,18 +1907,17 @@ async function deleteMessage(m, wrap) {
 }
 
 /* ============================================================
- * 文本状态切换（带淡出淡入）
+ * 文本状态过渡
  * ============================================================ */
-function transitionStatus(el, className, text, fadeMs) {
-  fadeMs = fadeMs || 180;
+function fadeSwap(el, className, text) {
   return new Promise(resolve => {
     el.style.opacity = '0';
     setTimeout(() => {
       el.className = 'msg-time' + (className ? ' ' + className : '');
       el.textContent = text;
       el.style.opacity = '1';
-      setTimeout(resolve, fadeMs);
-    }, fadeMs);
+      setTimeout(resolve, 180);
+    }, 180);
   });
 }
 
@@ -1784,27 +1927,21 @@ function transitionStatus(el, className, text, fadeMs) {
 async function sendTextOptimistic(text) {
   const tempId = 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
   const now = Date.now();
-  const msgData = { id: tempId, t: 'text', ts: now, text };
+  const msgData = { id: tempId, t: 'text', ts: now, text, _status: 'sending' };
 
   decryptCache.set(tempId, text);
   messages.push(msgData);
 
-  const msgEl = renderMessage(msgData);
-  msgEl.dataset.id = tempId;
-
-  // 把时间替换为"发送中"状态
-  const timeEl = msgEl.querySelector('.msg-time');
-  timeEl.className = 'msg-time status-sending';
-  timeEl.textContent = '发送中';
-  timeEl.style.opacity = '1';
-
-  // 若为空状态，先清掉；并补一个 day 分隔符
   const empty = msgsEl.querySelector('.empty-state');
   if (empty) empty.remove();
+  const notice = msgsEl.querySelector('.limit-notice');
+  if (notice) notice.remove();
   const days = msgsEl.querySelectorAll('.day');
   if (!days.length || days[days.length - 1].textContent !== dayLabel(now)) {
     addDayDivider(now);
   }
+
+  const msgEl = renderMessage(msgData);
   msgsEl.appendChild(msgEl);
   scrollToBottom();
 
@@ -1815,24 +1952,35 @@ async function sendTextOptimistic(text) {
       body: JSON.stringify({ t: 'text', v: enc })
     })).json();
 
-    // 用真实 id/ts 更新本地
     msgData.id = res.id;
     msgData.ts = res.ts;
-    msgEl.dataset.id = res.id;
     decryptCache.delete(tempId);
     decryptCache.set(res.id, text);
+    msgEl.dataset.id = res.id;
 
-    // 已发送 → 时间
-    await transitionStatus(timeEl, 'status-sent', '已发送 ✓');
-    await new Promise(r => setTimeout(r, 900));
-    await transitionStatus(timeEl, '', fmtClock(res.ts));
+    msgData._status = 'sent';
+    const timeEl = msgEl.querySelector('.msg-time');
+    if (timeEl) {
+      await fadeSwap(timeEl, 'status-sent', '已发送 ✓');
+      await new Promise(r => setTimeout(r, 900));
+      msgData._status = undefined;
+      if (timeEl.isConnected) {
+        await fadeSwap(timeEl, '', fmtClock(res.ts));
+      }
+    }
   } catch (e) {
-    // 失败：从数组移除并播放消失动画
-    messages = messages.filter(x => x.id !== tempId);
-    decryptCache.delete(tempId);
-    msgEl.classList.add('deleting');
-    setTimeout(() => msgEl.remove(), 300);
-    if (e.message !== '401') alert('发送失败');
+    // 失败：标记为 failed，保留在聊天里显示红色状态，等下次轮询自动移除
+    msgData._status = 'failed';
+    msgEl.classList.add('failed');
+    const timeEl = msgEl.querySelector('.msg-time');
+    if (timeEl) await fadeSwap(timeEl, 'status-failed', '发送失败');
+
+    // toast 提示
+    if (e.message === '401') {
+      // lockScreen 已经处理
+    } else {
+      showToast('发送失败', 'error');
+    }
     throw e;
   }
 }
@@ -1968,14 +2116,18 @@ async function send() {
 
   try {
     if (text) {
-      await sendTextOptimistic(text);
+      try {
+        await sendTextOptimistic(text);
+      } catch (e) {
+        // 已在内部提示，不再二次 alert
+      }
     }
     if (files.length) {
       await uploadAndSend(files);
     }
     await loadConversations();
   } catch (e) {
-    if (e.message !== '401') { /* 已在内部提示 */ }
+    if (e.message !== '401') { /* 已内部提示 */ }
   } finally {
     sending = false;
     setSendBusy(false);
@@ -2049,9 +2201,10 @@ async function uploadAndSend(files) {
   const convId = currentConv.id;
   const expSec = parseInt($('#expiryDD').dataset.value, 10) || 0;
 
-  // 若为空状态，清掉；确保有 day 分隔符
   const empty = msgsEl.querySelector('.empty-state');
   if (empty) empty.remove();
+  const notice = msgsEl.querySelector('.limit-notice');
+  if (notice) notice.remove();
   const now = Date.now();
   const days = msgsEl.querySelectorAll('.day');
   if (!days.length || days[days.length - 1].textContent !== dayLabel(now)) {
@@ -2117,6 +2270,7 @@ async function uploadOne(item, convId, expSec) {
     metaEl.textContent = e.message === '401' ? '会话失效' : (e.message || '上传失败');
     metaEl.style.color = 'var(--danger)';
     thumb.innerHTML = '<svg viewBox="0 0 24 24" style="stroke:#f87171;stroke-width:2.2;fill:none;stroke-linecap:round;stroke-linejoin:round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    if (e.message !== '401') showToast('文件上传失败', 'error');
   }
 }
 
@@ -2174,6 +2328,27 @@ document.addEventListener('visibilitychange', () => {
 async function pollMessages() {
   if (!currentConv || document.hidden || pollInFlight) return;
   if (sending) return;
+
+  // 1. 清理发送失败的消息（已有 toast 提示，等下次轮询自动移除）
+  const failedMsgs = messages.filter(m => m._status === 'failed');
+  if (failedMsgs.length) {
+    for (const fm of failedMsgs) {
+      decryptCache.delete(fm.id);
+      const el = msgsEl.querySelector(`.msg[data-id="${CSS.escape(fm.id)}"]`);
+      if (el) {
+        el.style.transition = 'opacity .25s var(--ease), transform .3s var(--ease)';
+        el.style.opacity = '0';
+        el.style.transform = 'translateX(-14px) scale(.96)';
+        setTimeout(() => el.remove(), 280);
+      }
+    }
+    messages = messages.filter(m => m._status !== 'failed');
+    if (!messages.length) renderMessages();
+  }
+
+  // 2. 还有正在发送中的乐观消息 → 跳过本轮，避免覆盖
+  if (messages.some(m => m._status === 'sending')) return;
+
   pollInFlight = true;
   try {
     const { messages: raw } = await (await api(
