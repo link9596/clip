@@ -146,11 +146,17 @@ async function recordAttempt(env, key, data) {
   });
 }
 
+/* ---------- 分页列举：显式带上 customMetadata ---------- */
 async function* listAll(bucket, opts = {}) {
   let cursor;
   let pages = 0;
   do {
-    const page = await bucket.list({ ...opts, cursor, limit: 1000 });
+    const page = await bucket.list({
+      ...opts,
+      cursor,
+      limit: 1000,
+      include: ['customMetadata'],
+    });
     for (const o of page.objects) yield o;
     cursor = page.truncated ? page.cursor : undefined;
     pages++;
@@ -179,7 +185,13 @@ async function listConversations(env) {
     })());
   }
   await Promise.all(gets);
-  list.sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  // 置顶优先，然后按更新时间倒序
+  list.sort((a, b) => {
+    const ap = a.pinned ? 1 : 0;
+    const bp = b.pinned ? 1 : 0;
+    if (ap !== bp) return bp - ap;
+    return (b.updated || 0) - (a.updated || 0);
+  });
   return json({ conversations: list });
 }
 
@@ -192,10 +204,43 @@ async function createConversation(env, request) {
   const name = (rawName.trim() || '新对话').slice(0, MAX_CONV_NAME);
   const now = Date.now();
   const id = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
-  const conv = { id, name, created: now, updated: now };
+  const conv = { id, name, created: now, updated: now, pinned: false };
 
   await env.BUCKET.put(`conv/${id}/meta`, JSON.stringify(conv));
   return json({ conversation: conv });
+}
+
+/* ---------- 对话重命名 / 置顶（新增） ---------- */
+async function updateConversation(env, request, convId) {
+  const key = `conv/${convId}/meta`;
+  const obj = await env.BUCKET.get(key);
+  if (!obj) return json({ error: 'not found' }, 404);
+
+  let data;
+  try { data = JSON.parse(await obj.text()); }
+  catch { return json({ error: 'invalid conversation data' }, 500); }
+
+  let body;
+  try { body = await safeJsonBody(request); }
+  catch (e) { return e instanceof Response ? e : json({ error: 'bad request' }, 400); }
+
+  let changed = false;
+
+  if (typeof body.name === 'string') {
+    const name = body.name.trim().replace(/[\r\n\t]/g, ' ').slice(0, MAX_CONV_NAME);
+    if (!name) return json({ error: 'invalid name' }, 400);
+    data.name = name;
+    changed = true;
+  }
+  if (typeof body.pinned === 'boolean') {
+    data.pinned = body.pinned;
+    changed = true;
+  }
+
+  if (!changed) return json({ error: 'nothing to update' }, 400);
+
+  await env.BUCKET.put(key, JSON.stringify(data));
+  return json({ conversation: data });
 }
 
 async function updateConvUpdated(env, convId, ts) {
@@ -223,7 +268,7 @@ async function deleteConversation(env, convId) {
   if (fileKeys.length) {
     await Promise.all(fileKeys.map(k => env.BUCKET.delete(k).catch(() => {})));
   }
-  return json({ ok: true });
+  return json({ ok: true, deletedFiles: fileKeys.length });
 }
 
 /* ---------- 消息 ---------- */
@@ -262,7 +307,6 @@ async function listMessages(env, convId) {
 }
 
 async function createMessage(env, request, convId) {
-  // 确认对话存在
   const metaObj = await env.BUCKET.head(`conv/${convId}/meta`);
   if (!metaObj) return json({ error: 'conversation not found' }, 404);
 
@@ -288,7 +332,6 @@ async function createMessage(env, request, convId) {
       return json({ error: 'bad file key' }, 400);
     }
 
-    // 确认文件存在
     const fileObj = await env.BUCKET.head(k);
     if (!fileObj) return json({ error: 'file not found' }, 404);
 
@@ -314,7 +357,6 @@ async function createMessage(env, request, convId) {
     return json({ error: 'bad type' }, 400);
   }
 
-  // 更新对话时间 + 裁剪超限消息
   await updateConvUpdated(env, convId, now).catch(() => {});
   await trimMessages(env, convId).catch(() => {});
 
@@ -351,6 +393,7 @@ async function deleteMessage(env, convId, msgId) {
   return json({ ok: true });
 }
 
+/* ---------- 文件消息重命名 ---------- */
 async function patchMessage(env, request, convId, msgId) {
   const key = `conv/${convId}/msg/${msgId}`;
   const obj = await env.BUCKET.head(key);
@@ -372,10 +415,8 @@ async function patchMessage(env, request, convId, msgId) {
 
   const newMeta = { ...meta, n: name };
 
-  // 消息对象的 body 是空的，直接重写元数据即可
   await env.BUCKET.put(key, '', { customMetadata: newMeta });
 
-  // 同步更新底层文件对象的名称
   if (meta.k) {
     try {
       const fobj = await env.BUCKET.get(meta.k);
@@ -512,6 +553,9 @@ export default {
       if (request.method === 'DELETE') {
         return deleteConversation(env, convId);
       }
+      if (request.method === 'PATCH') {
+        return updateConversation(env, request, convId);
+      }
       return json({ error: 'method not allowed' }, 405);
     }
 
@@ -612,7 +656,6 @@ export default {
 
     const dead = [];
     for await (const o of listAll(env.BUCKET, {})) {
-      // 对话下的消息按各自的过期机制处理（消息里的文件过期后仍会被 scheduled 单独清理）
       if (o.key.startsWith('conv/')) continue;
 
       if (o.key.startsWith('session/') || o.key.startsWith('ratelimit/')) {
@@ -621,7 +664,6 @@ export default {
         continue;
       }
 
-      // 剩下的就是文件对象
       if (isExpired(o.customMetadata)) {
         dead.push(env.BUCKET.delete(o.key));
       }
