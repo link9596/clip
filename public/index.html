@@ -484,26 +484,6 @@ svg{display:block}
   margin:0 auto 14px;
 }
 
-/* ===== 消息数量达到上限的提示 ===== */
-.limit-notice{
-  flex-shrink:0;
-  text-align:center;
-  font-size:12px;
-  color:var(--dim2);
-  padding:18px 16px 6px;
-  line-height:1.6;
-  user-select:none;
-  animation:msgIn .4s var(--ease) both;
-}
-.limit-notice::before{
-  content:'';
-  display:block;
-  width:24px;
-  height:1px;
-  background:var(--line);
-  margin:0 auto 10px;
-}
-
 .file-card.uploading{position:relative;overflow:hidden}
 .file-card.uploading::before{
   content:'';position:absolute;top:0;left:0;bottom:0;
@@ -688,13 +668,12 @@ svg{display:block}
   z-index:0;
 }
 
-/* ::after —— 单段纯色圆弧进度条 */
+/* ::after —— 单段纯色圆弧进度条，inset:0 与按钮同大 */
 .icon-btn.send::after{
   content:'';
   position:absolute;
-  inset:0px;
+  inset:0;
   border-radius:50%;
-  /* 纯色单段圆弧：0 → 100deg 实心，其余透明 */
   background:conic-gradient(
     from -90deg,
     var(--accent) 0deg,
@@ -702,7 +681,6 @@ svg{display:block}
     transparent 100deg,
     transparent 360deg
   );
-  /* 用 mask 把实心圆裁成圆环 */
   -webkit-mask:radial-gradient(circle at 50% 50%,
     transparent 0,
     transparent calc(50% - 2.5px),
@@ -1068,7 +1046,7 @@ const $ = s => document.querySelector(s);
 /* ============================================================
  * 常量
  * ============================================================ */
-const MAX_MESSAGES = 300;
+const UPLOAD_CONCURRENCY = 3;   // 文件上传最大并发数
 
 /* ============================================================
  * 加密
@@ -1160,6 +1138,31 @@ function showToast(text, type) {
     el.classList.add('out');
     setTimeout(() => el.remove(), 340);
   }, 2600);
+}
+
+/* ============================================================
+ * 并发池
+ * ============================================================ */
+async function runWithConcurrency(tasks, limit) {
+  const results = new Array(tasks.length);
+  let next = 0;
+
+  const worker = async () => {
+    while (true) {
+      const i = next++;
+      if (i >= tasks.length) return;
+      try {
+        results[i] = await tasks[i]();
+      } catch (e) {
+        results[i] = { error: e };
+      }
+    }
+  };
+
+  const n = Math.min(limit, tasks.length);
+  if (n <= 0) return results;
+  await Promise.all(Array.from({ length: n }, worker));
+  return results;
 }
 
 /* ============================================================
@@ -1736,13 +1739,6 @@ function renderMessages() {
     }
     msgsEl.appendChild(renderMessage(m));
   }
-
-  if (messages.length >= MAX_MESSAGES) {
-    const notice = document.createElement('div');
-    notice.className = 'limit-notice';
-    notice.textContent = '消息已到达数量限制，请尝试清理或新建对话';
-    msgsEl.appendChild(notice);
-  }
 }
 
 function renderMessage(m) {
@@ -2040,8 +2036,6 @@ async function sendTextOptimistic(text) {
 
   const empty = msgsEl.querySelector('.empty-state');
   if (empty) empty.remove();
-  const notice = msgsEl.querySelector('.limit-notice');
-  if (notice) notice.remove();
   const days = msgsEl.querySelectorAll('.day');
   if (!days.length || days[days.length - 1].textContent !== dayLabel(now)) {
     addDayDivider(now);
@@ -2316,8 +2310,6 @@ async function uploadAndSend(files) {
 
   const empty = msgsEl.querySelector('.empty-state');
   if (empty) empty.remove();
-  const notice = msgsEl.querySelector('.limit-notice');
-  if (notice) notice.remove();
   const now = Date.now();
   const days = msgsEl.querySelectorAll('.day');
   if (!days.length || days[days.length - 1].textContent !== dayLabel(now)) {
@@ -2333,9 +2325,11 @@ async function uploadAndSend(files) {
   });
   scrollToBottom();
 
-  for (const item of items) {
-    await uploadOne(item, convId, expSec);
-  }
+  // 并发上传，最多 UPLOAD_CONCURRENCY 个同时进行
+  await runWithConcurrency(
+    items.map(item => () => uploadOne(item, convId, expSec)),
+    UPLOAD_CONCURRENCY
+  );
 
   await loadConversations();
 }
