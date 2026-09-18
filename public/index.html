@@ -270,7 +270,6 @@ svg{display:block}
 
 .msg.file{width:100%;max-width:min(680px,100%);}
 
-/* 文件卡片：背景更亮，与文本气泡区分 */
 .file-card{
   display:flex;align-items:center;gap:12px;
   padding:11px 12px;border-radius:15px;width:100%;
@@ -294,7 +293,6 @@ svg{display:block}
 .file-card .meta{font-size:11.5px;color:var(--dim2);margin-top:2px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
-/* 文件操作：常驻显示 */
 .file-acts{display:flex;gap:5px;flex-shrink:0;}
 
 .act{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;
@@ -310,29 +308,29 @@ svg{display:block}
   margin-top:4px;padding:0 4px;min-height:20px;
 }
 .msg-time{font-size:11px;color:var(--dim2);}
-.msg-acts{display:flex;gap:4px;opacity:0;transition:opacity .2s;}
+.msg-acts{display:flex;gap:2px;opacity:0;transition:opacity .2s;}
 .msg:hover .msg-acts{opacity:1}
 @media (hover:none){.msg-acts{opacity:1}}
 
-/* 文本操作：图标按钮 */
+/* 文本操作：纯图标，无背景无边框 */
 .msg-act{
-  width:26px;height:26px;padding:0;
+  width:24px;height:24px;padding:0;
   display:grid;place-items:center;
-  border-radius:8px;
-  background:rgba(255,255,255,.05);
-  border:1px solid var(--line);
+  border-radius:6px;
+  background:transparent;
+  border:0;
   color:var(--dim);
-  transition:background .18s,color .18s,transform .14s;
+  transition:color .18s,transform .14s;
 }
 .msg-act svg{
-  width:13px;height:13px;
+  width:14px;height:14px;
   fill:none;stroke:currentColor;
   stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;
 }
-.msg-act:hover{background:rgba(255,255,255,.1);color:var(--fg)}
-.msg-act:active{transform:scale(.9)}
-.msg-act.danger:hover{background:rgba(248,113,113,.14);color:var(--danger);border-color:rgba(248,113,113,.28)}
-.msg-act.ok{color:var(--ok);border-color:rgba(52,211,153,.4)}
+.msg-act:hover{color:var(--fg)}
+.msg-act:active{transform:scale(.88)}
+.msg-act.danger:hover{color:var(--danger)}
+.msg-act.ok{color:var(--ok)}
 
 .rename-input{width:100%;background:rgba(255,255,255,.06);
   border:1px solid rgba(99,102,241,.5);border-radius:8px;padding:3px 8px;
@@ -344,6 +342,14 @@ svg{display:block}
   animation:msgIn .5s var(--ease) both;
 }
 .empty-state .big{font-size:15px;color:var(--dim);margin-bottom:6px}
+.empty-state .spin{
+  width:22px;height:22px;
+  border:2.5px solid rgba(255,255,255,.12);
+  border-top-color:var(--accent);
+  border-radius:50%;
+  animation:sp .75s linear infinite;
+  margin:0 auto 14px;
+}
 
 .file-card.uploading{position:relative;overflow:hidden}
 .file-card.uploading::before{
@@ -361,7 +367,7 @@ svg{display:block}
 @keyframes sp{to{transform:rotate(360deg)}}
 
 /* ============================================================
-   输入区：收窄的羽化过渡 + 大输入框
+   输入区
    ============================================================ */
 .composer{
   position:relative;
@@ -369,7 +375,6 @@ svg{display:block}
   padding:6px max(16px,calc(50% - 400px)) max(12px,env(safe-area-inset-bottom));
 }
 
-/* 收窄后的羽化渐变 */
 .composer::before{
   content:'';
   position:absolute;
@@ -410,7 +415,7 @@ svg{display:block}
     0 0 76px rgba(99,102,241,.05);
 }
 
-/* 待发送文件卡片（横向滚动） */
+/* 待发送文件卡片（横向自由滚动，无吸附） */
 .attach-preview{
   display:flex;
   flex-wrap:nowrap;
@@ -422,7 +427,6 @@ svg{display:block}
   border-bottom:1px dashed var(--line);
   scrollbar-width:none;
   -ms-overflow-style:none;
-  scroll-snap-type:x proximity;
   -webkit-overflow-scrolling:touch;
 }
 .attach-preview::-webkit-scrollbar{display:none}
@@ -435,7 +439,6 @@ svg{display:block}
   flex:0 0 auto;
   min-width:150px;
   max-width:220px;
-  scroll-snap-align:start;
   animation:chipIn .24s var(--ease) both;
 }
 @keyframes chipIn{from{opacity:0;transform:translateY(-4px) scale(.96)}}
@@ -500,6 +503,20 @@ svg{display:block}
   color:var(--fg);
 }
 .icon-btn.add:hover{background:rgba(255,255,255,.1);border-color:var(--line-hi)}
+.icon-btn.add.busy{
+  background:rgba(99,102,241,.08);
+  border-color:rgba(99,102,241,.24);
+  cursor:default;
+  transform:none;
+}
+
+.btn-spin{
+  width:13px;height:13px;
+  border:1.8px solid rgba(165,180,252,.25);
+  border-top-color:var(--accent-hi);
+  border-radius:50%;
+  animation:sp .7s linear infinite;
+}
 
 .icon-btn.send{
   background:var(--accent);color:#fff;border:0;
@@ -531,11 +548,6 @@ svg{display:block}
 .dd-chevron{width:12px;height:12px;flex-shrink:0;
   transition:transform .3s var(--ease);}
 .dd.open .dd-chevron{transform:rotate(180deg);color:var(--accent-hi)}
-/* 保留时间的钟表图标：主题紫色小点 */
-.dd-icon{
-  width:13px;height:13px;flex-shrink:0;
-  color:var(--accent-hi);
-}
 .dd-menu{
   position:absolute;bottom:calc(100% + 6px);left:0;
   min-width:120px;z-index:50;
@@ -610,7 +622,6 @@ svg{display:block}
 @media (max-width:760px){
   #menuBtn{display:grid}
 
-  /* 侧边栏：阴影仅在有 open 时出现，关闭后完全无阴影 */
   .sidebar{
     position:fixed;z-index:80;top:0;left:0;bottom:0;width:270px;
     transform:translateX(-101%);
@@ -701,10 +712,6 @@ svg{display:block}
         <div class="composer-bottom">
           <div class="dd" id="expiryDD" data-value="604800">
             <button type="button" class="dd-trigger" aria-haspopup="listbox" aria-expanded="false">
-              <svg class="dd-icon" viewBox="0 0 24 24">
-                <circle cx="12" cy="12" r="9"/>
-                <path d="M12 7v5l3 2"/>
-              </svg>
               <span class="dd-prefix">文件保留</span>
               <span class="dd-label">7 天</span>
               <svg class="dd-chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
@@ -1106,7 +1113,7 @@ function renderConvList() {
   }
 }
 
-/* ---- 三个点菜单（靠右侧弹出） ---- */
+/* ---- 三个点菜单（右边缘对齐按钮） ---- */
 function closeConvMenu() {
   if (convMenuEl) {
     convMenuEl.remove();
@@ -1153,13 +1160,12 @@ function openConvMenu(conv, anchor) {
   const menuH = menu.offsetHeight;
   const menuW = menu.offsetWidth;
 
-  // 垂直：优先显示在按钮下方，空间不足则显示在上方
   let top = r.bottom + 6;
   if (top + menuH > innerHeight - 8) {
     top = Math.max(8, r.top - menuH - 6);
   }
 
-  // 水平：右边缘与三点按钮右边缘对齐，菜单向左展开
+  // 右边缘与三点按钮右边缘对齐
   let left = r.right - menuW;
   if (left < 8) left = 8;
 
@@ -1248,15 +1254,31 @@ function startRenameConv(conv) {
   input.addEventListener('blur', () => finish(true));
 }
 
+/* ---- 新建对话：立即收起侧边栏 + 展示加载 ---- */
 async function createConversation(name) {
+  // 立即收起侧边栏（移动端）
+  closeSidebarMobile();
+
+  // 立即在消息区展示加载状态
+  $('#chatTitle').textContent = '新对话';
+  msgsEl.innerHTML = `
+    <div class="empty-state">
+      <div class="spin"></div>
+      <div>正在创建对话…</div>
+    </div>`;
+
   try {
     const res = await (await api('POST', '/api/conversations', {
       headers: jsonHeaders,
       body: JSON.stringify({ name: name || '新对话' })
     })).json();
     await loadConversations();
-    if (res.conversation) await openConversation(res.conversation.id);
-  } catch { alert('创建失败'); }
+    if (res.conversation) {
+      await openConversation(res.conversation.id);
+    }
+  } catch {
+    msgsEl.innerHTML = '<div class="empty-state" style="color:var(--danger)">创建失败</div>';
+  }
 }
 $('#newConvBtn').onclick = () => createConversation();
 
@@ -1271,7 +1293,7 @@ async function openConversation(id) {
   renderConvList();
   closeSidebarMobile();
 
-  $('#msgs').innerHTML = '<div class="empty-state"><div class="spin" style="margin:20px auto"></div></div>';
+  msgsEl.innerHTML = '<div class="empty-state"><div class="spin"></div></div>';
   await refreshMessages(true);
   startPolling();
 }
@@ -1356,11 +1378,13 @@ function renderMessage(m) {
     const acts = document.createElement('div');
     acts.className = 'msg-acts';
 
-    /* 复制（图标） */
+    /* 复制（纯图标，成功后变勾） */
     const copyBtn = document.createElement('button');
     copyBtn.className = 'msg-act';
     copyBtn.title = '复制';
-    copyBtn.innerHTML = '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+    const copySvg = '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+    const checkSvg = '<svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg>';
+    copyBtn.innerHTML = copySvg;
     copyBtn.onclick = async () => {
       const text = m.text || '';
       try {
@@ -1373,22 +1397,23 @@ function renderMessage(m) {
         try { document.execCommand('copy'); } catch {}
         ta.remove();
       }
+      copyBtn.innerHTML = checkSvg;
       copyBtn.classList.add('ok');
-      copyBtn.title = '已复制';
-      setTimeout(() => {
+      clearTimeout(copyBtn._t);
+      copyBtn._t = setTimeout(() => {
+        copyBtn.innerHTML = copySvg;
         copyBtn.classList.remove('ok');
-        copyBtn.title = '复制';
       }, 1400);
     };
 
-    /* 查看（图标） */
+    /* 查看（眼睛） */
     const viewBtn = document.createElement('button');
     viewBtn.className = 'msg-act';
     viewBtn.title = '查看';
     viewBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
     viewBtn.onclick = () => openPreview(m);
 
-    /* 删除（图标） */
+    /* 删除（垃圾桶） */
     const delBtn = document.createElement('button');
     delBtn.className = 'msg-act danger';
     delBtn.title = '删除';
@@ -1607,6 +1632,18 @@ const sendBtn = $('#sendBtn');
 const attachBtn = $('#attachBtn');
 const fileInput = $('#fileInput');
 
+function setAttachBusy(busy) {
+  if (busy) {
+    attachBtn.classList.add('busy');
+    attachBtn.disabled = true;
+    attachBtn.innerHTML = '<div class="btn-spin"></div>';
+  } else {
+    attachBtn.classList.remove('busy');
+    attachBtn.disabled = false;
+    attachBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>';
+  }
+}
+
 function updateSendState() {
   const hasText = input.value.trim().length > 0;
   const hasFiles = pendingFiles.length > 0;
@@ -1626,7 +1663,7 @@ input.addEventListener('keydown', e => {
 });
 sendBtn.onclick = send;
 attachBtn.onclick = () => {
-  if (!currentConv) return;
+  if (!currentConv || sending) return;
   fileInput.click();
 };
 fileInput.addEventListener('change', () => {
@@ -1656,6 +1693,8 @@ async function send() {
   if (!text && !files.length) return;
 
   sending = true;
+  setAttachBusy(true);
+
   input.value = '';
   input.style.height = 'auto';
   pendingFiles = [];
@@ -1663,6 +1702,7 @@ async function send() {
   updateSendState();
 
   try {
+    // 先发文字
     if (text) {
       const enc = await encryptText(cryptoKey, text);
       await api('POST', `/api/conversations/${currentConv.id}/messages`, {
@@ -1672,14 +1712,17 @@ async function send() {
       await refreshMessages(true);
       await loadConversations();
     }
+    // 再传文件
+    if (files.length) {
+      await uploadAndSend(files);
+    }
   } catch (e) {
     if (e.message !== '401') alert('发送失败');
   } finally {
     sending = false;
+    setAttachBusy(false);
     updateSendState();
   }
-
-  if (files.length) await uploadAndSend(files);
 }
 
 /* ============================================================
