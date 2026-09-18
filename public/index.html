@@ -415,7 +415,7 @@ svg{display:block}
     0 0 76px rgba(99,102,241,.05);
 }
 
-/* 待发送文件卡片（横向自由滚动，无吸附） */
+/* 待发送文件卡片（横向自由滚动） */
 .attach-preview{
   display:flex;
   flex-wrap:nowrap;
@@ -503,20 +503,6 @@ svg{display:block}
   color:var(--fg);
 }
 .icon-btn.add:hover{background:rgba(255,255,255,.1);border-color:var(--line-hi)}
-.icon-btn.add.busy{
-  background:rgba(99,102,241,.08);
-  border-color:rgba(99,102,241,.24);
-  cursor:default;
-  transform:none;
-}
-
-.btn-spin{
-  width:13px;height:13px;
-  border:1.8px solid rgba(165,180,252,.25);
-  border-top-color:var(--accent-hi);
-  border-radius:50%;
-  animation:sp .7s linear infinite;
-}
 
 .icon-btn.send{
   background:var(--accent);color:#fff;border:0;
@@ -524,6 +510,24 @@ svg{display:block}
 .icon-btn.send:hover{filter:brightness(1.1)}
 .icon-btn.send:disabled{
   opacity:.3;cursor:default;filter:none;transform:none;
+}
+
+/* 发送按钮的 busy 状态：显示转圈 */
+.icon-btn.send.busy,
+.icon-btn.send.busy:disabled{
+  opacity:1;
+  background:rgba(99,102,241,.45);
+  cursor:default;
+  transform:none;
+  filter:none;
+}
+
+.btn-spin{
+  width:13px;height:13px;
+  border:1.8px solid rgba(255,255,255,.3);
+  border-top-color:#fff;
+  border-radius:50%;
+  animation:sp .7s linear infinite;
 }
 
 /* ---------- 下拉 ---------- */
@@ -1256,10 +1260,8 @@ function startRenameConv(conv) {
 
 /* ---- 新建对话：立即收起侧边栏 + 展示加载 ---- */
 async function createConversation(name) {
-  // 立即收起侧边栏（移动端）
   closeSidebarMobile();
 
-  // 立即在消息区展示加载状态
   $('#chatTitle').textContent = '新对话';
   msgsEl.innerHTML = `
     <div class="empty-state">
@@ -1632,15 +1634,15 @@ const sendBtn = $('#sendBtn');
 const attachBtn = $('#attachBtn');
 const fileInput = $('#fileInput');
 
-function setAttachBusy(busy) {
+const SEND_ICON = '<svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+
+function setSendBusy(busy) {
   if (busy) {
-    attachBtn.classList.add('busy');
-    attachBtn.disabled = true;
-    attachBtn.innerHTML = '<div class="btn-spin"></div>';
+    sendBtn.classList.add('busy');
+    sendBtn.innerHTML = '<div class="btn-spin"></div>';
   } else {
-    attachBtn.classList.remove('busy');
-    attachBtn.disabled = false;
-    attachBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>';
+    sendBtn.classList.remove('busy');
+    sendBtn.innerHTML = SEND_ICON;
   }
 }
 
@@ -1693,7 +1695,7 @@ async function send() {
   if (!text && !files.length) return;
 
   sending = true;
-  setAttachBusy(true);
+  setSendBusy(true);
 
   input.value = '';
   input.style.height = 'auto';
@@ -1702,7 +1704,6 @@ async function send() {
   updateSendState();
 
   try {
-    // 先发文字
     if (text) {
       const enc = await encryptText(cryptoKey, text);
       await api('POST', `/api/conversations/${currentConv.id}/messages`, {
@@ -1712,7 +1713,6 @@ async function send() {
       await refreshMessages(true);
       await loadConversations();
     }
-    // 再传文件
     if (files.length) {
       await uploadAndSend(files);
     }
@@ -1720,7 +1720,7 @@ async function send() {
     if (e.message !== '401') alert('发送失败');
   } finally {
     sending = false;
-    setAttachBusy(false);
+    setSendBusy(false);
     updateSendState();
   }
 }
