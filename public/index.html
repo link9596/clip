@@ -688,17 +688,17 @@ svg{display:block}
   z-index:0;
 }
 
-/* ::after —— 单段圆弧进度条（conic-gradient + mask 环形） */
+/* ::after —— 单段纯色圆弧进度条 */
 .icon-btn.send::after{
   content:'';
   position:absolute;
   inset:2px;
   border-radius:50%;
-  /* 只画一段约 100° 的弧，其余完全透明 */
+  /* 纯色单段圆弧：0 → 100deg 实心，其余透明 */
   background:conic-gradient(
     from -90deg,
-    var(--accent-hi) 0deg,
-    var(--accent) 60deg,
+    var(--accent) 0deg,
+    var(--accent) 100deg,
     transparent 100deg,
     transparent 360deg
   );
@@ -766,7 +766,7 @@ svg{display:block}
   transform:scale(.88);
 }
 
-/* 旋转中：背景淡出，单段圆弧圆环淡入并转圈 */
+/* 旋转中：背景淡出，单段纯色圆弧圆环淡入并转圈 */
 .icon-btn.send.spinning::before{
   opacity:0;
 }
