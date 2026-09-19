@@ -98,14 +98,6 @@ function sanitizeTenant(id) {
   return String(id).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32);
 }
 
-/**
- * 根据提交的密码解析租户。
- * 优先使用 ACCESS_TOKENS（JSON 映射：{"密码":"租户ID", ...}）。
- * 未配置时回退到单密码 ACCESS_TOKEN，映射到 'default' 租户。
- *
- * 所有比较均为 timing-safe，且总是遍历完所有条目，
- * 避免通过时间差异推断出匹配的是哪一条。
- */
 async function resolveTenant(env, password) {
   if (env.ACCESS_TOKENS) {
     let map;
@@ -149,12 +141,23 @@ async function getSession(env, request) {
   return { sid, key, exp, tenant };
 }
 
-async function refreshSession(env, sess) {
+/**
+ * 如果会话剩余时间不足一半，就更新 R2 里的 exp 并返回新的 Set-Cookie。
+ * 否则返回 null（表示不需要续期）。
+ */
+async function maybeRenew(env, sess) {
+  if (!sess) return null;
+  const remain = sess.exp - Date.now();
+  if (remain >= SESSION_TTL_MS * 0.5) return null;
   const newExp = Date.now() + SESSION_TTL_MS;
-  if (newExp - sess.exp < SESSION_TTL_MS * 0.5) return null;
-  await env.BUCKET.put(sess.key, '1', {
-    customMetadata: { exp: String(newExp), t: sess.tenant },
-  });
+  try {
+    await env.BUCKET.put(sess.key, '1', {
+      customMetadata: { exp: String(newExp), t: sess.tenant },
+    });
+    return setCookie(sess.sid, SESSION_TTL);
+  } catch {
+    return null;
+  }
 }
 
 function clientIp(request) {
@@ -397,7 +400,6 @@ async function createMessage(env, request, convId, tenant) {
     const k = typeof body.k === 'string' ? body.k : '';
     if (!isValidFileUuid(k)) return json({ error: 'bad file key' }, 400);
 
-    // 文件必须属于同一租户
     const r2Key = fileKey(tenant, k);
     const fileObj = await env.BUCKET.head(r2Key);
     if (!fileObj) return json({ error: 'file not found' }, 404);
@@ -483,7 +485,6 @@ async function patchMessage(env, request, convId, msgId, tenant) {
   const newMeta = { ...meta, n: name };
   await env.BUCKET.put(key, '', { customMetadata: newMeta });
 
-  // 同步更新底层文件对象的名字
   if (meta.k && isValidFileUuid(meta.k)) {
     try {
       const r2Key = fileKey(tenant, meta.k);
@@ -590,7 +591,6 @@ export default {
       return json({ ok: true }, 200, { 'Set-Cookie': setCookie('', 0) });
     }
 
-    // 退出所有设备：只撤销当前租户的会话，不影响其他用户
     if (path === '/api/logout-all' && request.method === 'POST') {
       const sess = await getSession(env, request);
       if (!sess) return json({ error: 'unauthorized' }, 401);
@@ -608,19 +608,37 @@ export default {
 
     if (path === '/api/session' && request.method === 'GET') {
       const sess = await getSession(env, request);
-      return json({ ok: !!sess });
+      if (!sess) return json({ ok: false });
+      const newCookie = await maybeRenew(env, sess);
+      const headers = {};
+      if (newCookie) headers['Set-Cookie'] = newCookie;
+      return json({ ok: true }, 200, headers);
     }
 
     /* ---------- 认证 ---------- */
     const sess = await getSession(env, request);
     if (!sess) return json({ error: 'unauthorized' }, 401);
     const tenant = sess.tenant;
-    ctx.waitUntil(refreshSession(env, sess).catch(() => {}));
+
+    // 会话不足一半时续期，得到新的 Set-Cookie（或 null）
+    const renewCookie = await maybeRenew(env, sess);
+
+    // 统一包装：需要续期时给所有响应追加 Set-Cookie
+    const respond = (resp) => {
+      if (!renewCookie) return resp;
+      const headers = new Headers(resp.headers);
+      headers.append('Set-Cookie', renewCookie);
+      return new Response(resp.body, {
+        status: resp.status,
+        statusText: resp.statusText,
+        headers,
+      });
+    };
 
     /* ---------- 对话 ---------- */
     if (path === '/api/conversations') {
-      if (request.method === 'GET') return listConversations(env, tenant);
-      if (request.method === 'POST') return createConversation(env, request, tenant);
+      if (request.method === 'GET')  return respond(await listConversations(env, tenant));
+      if (request.method === 'POST') return respond(await createConversation(env, request, tenant));
       return json({ error: 'method not allowed' }, 405);
     }
 
@@ -628,8 +646,8 @@ export default {
     if (convMatch) {
       const convId = safeDecode(convMatch[1]);
       if (!isValidConvId(convId)) return json({ error: 'bad id' }, 400);
-      if (request.method === 'DELETE') return deleteConversation(env, convId, tenant);
-      if (request.method === 'PATCH')  return updateConversation(env, request, convId, tenant);
+      if (request.method === 'DELETE') return respond(await deleteConversation(env, convId, tenant));
+      if (request.method === 'PATCH')  return respond(await updateConversation(env, request, convId, tenant));
       return json({ error: 'method not allowed' }, 405);
     }
 
@@ -638,8 +656,8 @@ export default {
     if (msgsMatch) {
       const convId = safeDecode(msgsMatch[1]);
       if (!isValidConvId(convId)) return json({ error: 'bad id' }, 400);
-      if (request.method === 'GET')  return listMessages(env, convId, tenant);
-      if (request.method === 'POST') return createMessage(env, request, convId, tenant);
+      if (request.method === 'GET')  return respond(await listMessages(env, convId, tenant));
+      if (request.method === 'POST') return respond(await createMessage(env, request, convId, tenant));
       return json({ error: 'method not allowed' }, 405);
     }
 
@@ -651,8 +669,8 @@ export default {
       if (!isValidConvId(convId) || !isValidMsgId(msgId)) {
         return json({ error: 'bad id' }, 400);
       }
-      if (request.method === 'DELETE') return deleteMessage(env, convId, msgId, tenant);
-      if (request.method === 'PATCH')  return patchMessage(env, request, convId, msgId, tenant);
+      if (request.method === 'DELETE') return respond(await deleteMessage(env, convId, msgId, tenant));
+      if (request.method === 'PATCH')  return respond(await patchMessage(env, request, convId, msgId, tenant));
       return json({ error: 'method not allowed' }, 405);
     }
 
@@ -679,8 +697,7 @@ export default {
         httpMetadata: { contentType: type },
       });
 
-      // 返回给前端的是 uuid，不含租户信息
-      return json({ key: uuid, name: meta.n, exp: meta.e ? parseTs(meta.e, 0) : 0 });
+      return respond(json({ key: uuid, name: meta.n, exp: meta.e ? parseTs(meta.e, 0) : 0 }));
     }
 
     /* ---------- 文件下载 ---------- */
@@ -688,7 +705,6 @@ export default {
       const uuid = safeDecode(path.slice('/api/files/'.length));
       if (!isValidFileUuid(uuid)) return json({ error: 'bad key' }, 400);
 
-      // 关键：路径用当前会话的租户拼接
       const r2Key = fileKey(tenant, uuid);
       const obj = await env.BUCKET.get(r2Key);
       if (!obj) return json({ error: 'not found' }, 404);
@@ -717,7 +733,7 @@ export default {
           `attachment; filename*=UTF-8''${encodeURIComponent(name)}`;
       }
 
-      return new Response(obj.body, { headers });
+      return respond(new Response(obj.body, { headers }));
     }
 
     return json({ error: 'not found' }, 404);
@@ -729,15 +745,12 @@ export default {
     const dead = [];
 
     for await (const o of listAll(env.BUCKET, {})) {
-      // 会话和限流：按 exp 清理
       if (o.key.startsWith('session/') || o.key.startsWith('ratelimit/')) {
         const exp = parseTs(o.customMetadata?.exp, 0);
         if (exp <= 0 || now > exp) dead.push(env.BUCKET.delete(o.key));
         continue;
       }
 
-      // 对话消息和 meta 没有 e 字段，isExpired 会自动返回 false
-      // 只有带 e 的文件对象会被清理
       if (isExpired(o.customMetadata)) {
         dead.push(env.BUCKET.delete(o.key));
       }
