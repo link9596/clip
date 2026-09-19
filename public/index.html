@@ -31,7 +31,6 @@ input,textarea{font:inherit;color:inherit}
 svg{display:block}
 [hidden]{display:none !important}
 
-/* 发送按钮「镂空」用的可动画自定义属性 */
 @property --send-hole{
   syntax:'<percentage>';
   inherits:false;
@@ -414,14 +413,12 @@ svg{display:block}
   100%{background-position:0% 0}
 }
 
-/* ===== 已发送：深绿色打勾 ===== */
 .msg-time.status-sent{
   color:var(--ok-deep);
   font-weight:600;
   letter-spacing:.02em;
 }
 
-/* ===== 发送失败：红色 ===== */
 .msg-time.status-failed{
   color:var(--danger);
   font-weight:600;
@@ -646,7 +643,6 @@ svg{display:block}
   transition:transform .16s var(--ease),filter .2s var(--ease),opacity .25s var(--ease);
 }
 
-/* ::before —— 实心圆 + 镂空 + 缩放 */
 .icon-btn.send::before{
   --send-hole:0%;
   content:'';
@@ -668,7 +664,6 @@ svg{display:block}
   z-index:0;
 }
 
-/* ::after —— 单段纯色圆弧进度条，inset:0 与按钮同大 */
 .icon-btn.send::after{
   content:'';
   position:absolute;
@@ -701,30 +696,24 @@ svg{display:block}
   z-index:1;
 }
 
-/* 箭头图标 */
 .icon-btn.send .send-ico{
   position:relative;
   z-index:2;
   transition:opacity .22s var(--ease),transform .3s var(--ease);
 }
 
-/* 悬停 / 按下（仅空闲态） */
 .icon-btn.send:not(.sending):not(.spinning):hover::before{
   filter:brightness(1.1);
 }
 .icon-btn.send:not(.sending):not(.spinning):active{
   transform:scale(.92);
 }
-
-/* 禁用（空闲态才降透明度） */
 .icon-btn.send:disabled:not(.sending):not(.spinning){
   opacity:.3;
   cursor:default;
   filter:none;
   transform:none;
 }
-
-/* 发送中 / 旋转中：保持可见、不可点 */
 .icon-btn.send.sending,
 .icon-btn.send.spinning{
   opacity:1;
@@ -737,14 +726,10 @@ svg{display:block}
   opacity:0;
   transform:scale(.5);
 }
-
-/* 镂空扩大 + 外圈缩小 */
 .icon-btn.send.sending::before{
   --send-hole:74%;
   transform:scale(.88);
 }
-
-/* 旋转中：背景淡出，单段纯色圆弧圆环淡入并转圈 */
 .icon-btn.send.spinning::before{
   opacity:0;
 }
@@ -752,7 +737,6 @@ svg{display:block}
   opacity:1;
   animation:spin .72s linear infinite;
 }
-
 @keyframes spin{
   from{ rotate:0deg; }
   to  { rotate:360deg; }
@@ -1055,6 +1039,10 @@ const te = new TextEncoder();
 const td = new TextDecoder();
 const SALT = te.encode('clip-v1-kdf-salt');
 
+/**
+ * 从密码派生 AES-GCM 密钥。
+ * extractable=false —— 密钥对象不可导出，XSS 无法把它带走。
+ */
 async function deriveKey(password) {
   const base = await crypto.subtle.importKey(
     'raw', te.encode(password), 'PBKDF2', false, ['deriveKey']
@@ -1063,7 +1051,7 @@ async function deriveKey(password) {
     { name:'PBKDF2', salt:SALT, iterations:310000, hash:'SHA-256' },
     base,
     { name:'AES-GCM', length:256 },
-    false,
+    false,               // 关键：不可导出
     ['encrypt','decrypt']
   );
 }
@@ -1101,6 +1089,83 @@ async function decryptText(key, b64) {
     );
     return td.decode(pt);
   } catch { return ''; }
+}
+
+/* ============================================================
+ * 密钥持久化：IndexedDB 存不可导出 CryptoKey
+ * 密码不落地，密钥 extractable=false，XSS 也带不走。
+ * ============================================================ */
+const KEY_DB    = 'flypaste-keys';
+const KEY_STORE = 'keys';
+const KEY_ID    = 'primary-key';
+
+function openKeyDB() {
+  return new Promise((resolve, reject) => {
+    let req;
+    try { req = indexedDB.open(KEY_DB, 1); }
+    catch (e) { reject(e); return; }
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(KEY_STORE)) {
+        db.createObjectStore(KEY_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error('blocked'));
+  });
+}
+
+async function storeKey(key) {
+  try {
+    const db = await openKeyDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(KEY_STORE, 'readwrite');
+      tx.objectStore(KEY_STORE).put(key, KEY_ID);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+    db.close();
+    return true;
+  } catch (e) {
+    console.warn('[FlyPaste] 无法持久化密钥，将退回到每次手动解锁', e);
+    return false;
+  }
+}
+
+async function loadKey() {
+  try {
+    const db = await openKeyDB();
+    const key = await new Promise((resolve, reject) => {
+      const tx = db.transaction(KEY_STORE, 'readonly');
+      const req = tx.objectStore(KEY_STORE).get(KEY_ID);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    if (key && key.type === 'secret'
+        && key.algorithm && key.algorithm.name === 'AES-GCM') {
+      return key;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function clearStoredKey() {
+  try {
+    const db = await openKeyDB();
+    await new Promise((resolve) => {
+      const tx = db.transaction(KEY_STORE, 'readwrite');
+      tx.objectStore(KEY_STORE).delete(KEY_ID);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    });
+    db.close();
+  } catch {}
 }
 
 /* ============================================================
@@ -1205,9 +1270,15 @@ function showBootLogin(msg){
   lockErr.textContent = msg || '';
   pwInput.value = '';
 }
-function lockScreen(msg = ''){
+
+/**
+ * 锁屏到登录界面。
+ * clearKey=true 时同时清掉 IndexedDB 里的密钥（主动登出用）。
+ * 默认 false —— 会话过期时保留密钥，用户下次输入相同密码覆盖即可。
+ */
+function lockScreen(msg = '', clearKey = false) {
   cryptoKey = null;
-  try { localStorage.removeItem('clip.pw'); } catch {}
+  if (clearKey) clearStoredKey().catch(() => {});
   stopPolling();
   closeConvMenu();
   pendingFiles = [];
@@ -1238,7 +1309,9 @@ async function unlock() {
     if (!res.ok) throw new Error('bad');
 
     cryptoKey = await deriveKey(pw);
-    try { localStorage.setItem('clip.pw', pw); } catch {}
+    // 密钥持久化到 IndexedDB（不存密码）
+    await storeKey(cryptoKey);
+
     pwInput.value = '';
     decryptCache.clear();
 
@@ -1400,10 +1473,12 @@ function closeSidebarMobile() {
     sbScrim.classList.remove('on');
   }
 }
+
+// 主动登出：清 session 同时清掉本地密钥
 $('#logoutAllBtn').onclick = async () => {
   if (!await confirmDialog('退出所有设备？当前设备也会被登出。')) return;
   try { await api('POST', '/api/logout-all'); } catch {}
-  lockScreen('已退出所有设备');
+  lockScreen('已退出所有设备', true);
 };
 
 /* ============================================================
@@ -1557,7 +1632,7 @@ function openConvMenu(conv, anchor) {
 
   menu.querySelector('[data-act="delete"]').onclick = async () => {
     closeConvMenu();
-    if (!await confirmDialog(`删除对话「${conv.name}」？\n该对话下所有内容都会彻底删除。`)) return;
+    if (!await confirmDialog(`删除对话「${conv.name}」？\n该对话下所有文本和文件都会从服务器彻底删除。`)) return;
 
     const item = convList.querySelector(`.conv-item[data-id="${conv.id}"]`);
     if (item) item.classList.add('deleting');
@@ -2494,46 +2569,38 @@ async function boot() {
   startPolling();
 }
 
+/**
+ * 自动登录：
+ *   1. IndexedDB 里有密钥 + 服务端 session 有效 → 直接进
+ *   2. 否则显示登录界面
+ * 没有旧版 localStorage 迁移逻辑。
+ */
 async function init() {
   const started = Date.now();
-  async function settle(fn) {
+  const settle = async (fn) => {
     const rest = MIN_BOOT - (Date.now() - started);
     if (rest > 0) await new Promise(r => setTimeout(r, rest));
     fn();
-  }
+  };
 
-  let pw = null;
-  try { pw = localStorage.getItem('clip.pw'); } catch {}
-
-  if (pw) {
-    try {
+  try {
+    const key = await loadKey();
+    if (key) {
       const r = await fetch('/api/session', { credentials: 'same-origin' });
       const data = await r.json();
       if (data.ok) {
-        cryptoKey = await deriveKey(pw);
-        showApp(); hideBoot();
+        cryptoKey = key;
+        showApp();
+        hideBoot();
         await settle(() => {});
         await boot();
         return;
       }
-      const lr = await fetch('/api/login', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: jsonHeaders,
-        body: JSON.stringify({ password: pw })
-      });
-      if (lr.ok) {
-        cryptoKey = await deriveKey(pw);
-        showApp(); hideBoot();
-        await settle(() => {});
-        await boot();
-        return;
-      }
-      try { localStorage.removeItem('clip.pw'); } catch {}
-    } catch {
-      try { localStorage.removeItem('clip.pw'); } catch {}
+      // session 已失效：清掉本地密钥，让用户重新登录
+      await clearStoredKey();
     }
-  }
+  } catch {}
+
   await settle(() => showBootLogin());
 }
 
